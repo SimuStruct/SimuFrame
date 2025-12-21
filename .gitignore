@@ -1,61 +1,31 @@
-# ======================================
+# IDEs
+.idea/
+.vscode/
+
 # Python
-# ======================================
-**/__pycache__/
+__pycache__/
 *.py[cod]
 *$py.class
-
-# ======================================
-# Build / Distribution
-# ======================================
-build/
-dist/
-*.egg-info/
-.eggs/
-*.manifest
-*.spec
-
-# ======================================
-# Virtual environments
-# ======================================
-.venv/
+*.so
+.Python
 venv/
 env/
-SimuStruct/
-Scripts/
+.env
+.venv/
 
-# ======================================
-# Logs, tests and caches
-# ======================================
-*.log
-*.out
-*.bak
-*.tmp
-*.swp
-*.png
-.cache/
-/SimuFrame/tests/
+# Folders
 SimuMembrane/
 SimuShell/
+SimuFrame/tests/
+
+# Future projects
 main_shell.py
 
-# ======================================
-# IDE / Editor files
-# ======================================
-.vscode/
-*.code-workspace
+# Tools
+.python-version
+uv.lock
+*.lock
 
-# ======================================
-# Data / Results
-# ======================================
-output/
-results/
-plots/
-temp/
-__temp__/
-
-# ======================================
-# OS files
-# ======================================
+# System
 .DS_Store
 Thumbs.db
