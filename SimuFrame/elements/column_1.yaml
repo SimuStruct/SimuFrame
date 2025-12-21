@@ -1,0 +1,50 @@
+# Header with a title and a subtitle
+info:
+  project_name: Simply supported beam (Figueiras)
+  description: Simply supported beam (from Figueiras) example, evaluating the geometric nonlinearity
+  project_version: 1.0
+
+# Analysis general parameters
+analysis:
+  analysis_type: buckling       # Options: linear, nonlinear, buckling
+  element_type: beam          # Options: beam, shell, truss
+  number_of_subdivisions: 64  # Number of subdivisions for numerical integration
+
+# Material properties
+materials:
+  # General concrete properties (Units: kN, m)
+  # Concrete properties based on Figueiras example
+  CONCRETE:
+    E: 2.7e7                    # Young's modulus (kPa)
+    nu: 0.3                    # Poisson's ratio
+
+# Section properties
+sections:
+  CIRC_BEAM:
+    geometry: circular
+    material_id: CONCRETE
+    geometry_params:
+      raio: 0.1
+
+# Nodal coordinates [x, y, z] (Units: m)
+nodes:
+  - [0, 0, 0]
+  - [0, 0, 6]
+
+# List of elements (before assembly) and their corresponding connectivity
+elements:
+  - connec: [0, 1]           # Start node ID, End node ID
+    section_id: CIRC_BEAM    # Reference section ID
+
+# Boundary conditions
+# [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
+supports:
+  # List of Node IDs - DOFs restrained
+  - node_id: [0]
+    boundary_conditions: [0, 1, 2, 3, 4, 5]
+
+# Nodal loads
+nodal_loads:
+   - node_id: 1
+     load: [0, 0, -1, 0, 0, 0]
+

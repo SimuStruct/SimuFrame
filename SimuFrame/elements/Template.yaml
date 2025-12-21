@@ -1,0 +1,194 @@
+# ==============================================================================
+# SIMUFRAME PROJECT TEMPLATE
+# ==============================================================================
+# This file serves as a comprehensive template for defining structural analysis
+# projects within SimuFrame. All units are consistent (e.g., kN, m, kPa).
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. PROJECT INFORMATION
+# ------------------------------------------------------------------------------
+info:
+  project_name: Project Title Placeholder
+  description: Brief description of the structural model_type and analysis goals.
+  project_version: 1.0
+  author: User Name
+  created_at: "YYYY-MM-DD"
+
+# ------------------------------------------------------------------------------
+# 2. ANALYSIS CONFIGURATION
+# ------------------------------------------------------------------------------
+analysis:
+  # Analysis Type:
+  # - 'linear': Static Linear Analysis (Small displacements, Elastic material)
+  # - 'nonlinear': Geometric Nonlinear Analysis (Large displacements/P-Delta)
+  # - 'buckling': Linear Elastic Buckling Analysis (Eigenvalue problem)
+  analysis_type: linear
+
+  # Element Formulation:
+  # - 'beam': Euler-Bernoulli/Timoshenko beam (6 dofs_per_node/node)
+  # - 'truss': Axial bars only (3 dofs_per_node/node - Translation only)
+  element_type: beam
+
+  # Discretization:
+  # Number of internal integration points or subdivisions per element
+  # Higher values increase accuracy for nonlinear analysis but increase cost.
+  number_of_subdivisions: 4
+
+# ------------------------------------------------------------------------------
+# 3. MATERIALS
+# ------------------------------------------------------------------------------
+materials:
+  # Define materials by a unique Key (ID).
+  # Units: Modulus of Elasticity (E) in kPa (kN/m²), Poisson's Ratio (nu) dimensionless.
+
+  CONCRETE_C25:
+    E: 25000000.0  # 25 GPa
+    nu: 0.2
+
+  STEEL_S275:
+    E: 210000000.0 # 210 GPa
+    nu: 0.3
+
+# ------------------------------------------------------------------------------
+# 4. CROSS-SECTIONS
+# ------------------------------------------------------------------------------
+sections:
+  # Define section geometries. Keys (e.g., 'COL_RECT') are referenced in elements.
+  # Supported geometries: rectangular, circular, rhs, chs, i_section, t_section, c_channel, angle
+
+  # Solid Rectangular
+  RECT_EXAMPLE:
+    geometry: rectangular
+    material_id: CONCRETE_C25
+    geometry_params:
+      width: 0.30   # (m)
+      height: 0.50  # (m)
+
+  # Solid Circular
+  CIRC_EXAMPLE:
+    geometry: circular
+    material_id: CONCRETE_C25
+    geometry_params:
+      diameter: 0.40 # (m) Alternatively use 'radius'
+
+  # Rectangular Hollow Section (Box/Tube)
+  RHS_EXAMPLE:
+    geometry: rhs
+    material_id: STEEL_S275
+    geometry_params:
+      width: 0.20     # Outer width (m)
+      height: 0.40    # Outer height (m)
+      thickness: 0.01 # Wall thickness (m)
+
+  # Circular Hollow Section (Pipe)
+  CHS_EXAMPLE:
+    geometry: chs
+    material_id: STEEL_S275
+    geometry_params:
+      outer_diameter: 0.30 # (m)
+      thickness: 0.008     # (m)
+
+  # I-Profile (Double T)
+  I_SECTION_EXAMPLE:
+    geometry: i_section
+    material_id: STEEL_S275
+    geometry_params:
+      height: 0.40 # Total depth (d)
+      width: 0.20  # Flange width (bf)
+      tf: 0.012    # Flange thickness
+      tw: 0.008    # Web thickness
+
+  # T-Profile
+  T_SECTION_EXAMPLE:
+    geometry: t_section
+    material_id: STEEL_S275
+    geometry_params:
+      height: 0.30
+      width: 0.15
+      tf: 0.010
+      tw: 0.008
+
+  # C-Channel (U-Profile)
+  CHANNEL_EXAMPLE:
+    geometry: c_channel
+    material_id: STEEL_S275
+    geometry_params:
+      height: 0.25
+      width: 0.10
+      tf: 0.010
+      tw: 0.008
+
+  # L-Profile (Angle)
+  ANGLE_EXAMPLE:
+    geometry: angle
+    material_id: STEEL_S275
+    geometry_params:
+      height: 0.10 # Vertical leg
+      width: 0.10  # Horizontal leg
+      thickness: 0.008
+
+# ------------------------------------------------------------------------------
+# 5. NODES
+# ------------------------------------------------------------------------------
+nodes:
+  # List of coordinates [x, y, z] in meters.
+  # Index implicit: 0, 1, 2, ...
+  - [0.0, 0.0, 0.0]  # Node 0
+  - [0.0, 3.0, 0.0]  # Node 1
+  - [4.0, 3.0, 0.0]  # Node 2
+  - [4.0, 0.0, 0.0]  # Node 3
+
+# ------------------------------------------------------------------------------
+# 6. ELEMENTS
+# ------------------------------------------------------------------------------
+elements:
+  # Define connectivity between nodes.
+  # connec: [Start_Node_ID, End_Node_ID]
+  # member_releases: [[Start_DOFs], [End_DOFs]] (Optional, defaults to Rigid-Rigid)
+  # DOFs: 0=ux, 1=uy, 2=uz, 3=rx, 4=ry, 5=rz
+
+  - connec: [0, 1]
+    section_id: RECT_EXAMPLE
+    # Default rigid connection (Fixed-Fixed)
+
+  - connec: [1, 2]
+    section_id: I_SECTION_EXAMPLE
+    # Example: Hinge at Start (hinges rx, ry, rz), Rigid at End
+    releases: [[3, 4, 5], []]
+
+  - connec: [2, 3]
+    section_id: RECT_EXAMPLE
+    # Example: Truss behavior (hinges rotations at both ends)
+    releases: [[3, 4, 5], [3, 4, 5]]
+
+# ------------------------------------------------------------------------------
+# 7. BOUNDARY CONDITIONS (SUPPORTS)
+# ------------------------------------------------------------------------------
+supports:
+  # Apply constraints to nodes.
+  # boundary_conditions: List of dofs_per_node indices to FIX (restrain).
+  # 0=X, 1=Y, 2=Z, 3=RotX, 4=RotY, 5=RotZ
+
+  - node_id: [0, 3]
+    boundary_conditions: [0, 1, 2, 3, 4, 5] # Fully Fixed (Encastre)
+
+  - node_id: [2]
+    boundary_conditions: [1] # Roller (Restrains Y translation only)
+
+# ------------------------------------------------------------------------------
+# 8. LOADS
+# ------------------------------------------------------------------------------
+# Nodal Loads (Concentrated Forces/Moments)
+nodal_loads:
+  - node_id: [1, 2] # Apply to multiple nodes
+    # Vector: [Fx, Fy, Fz, Mx, My, Mz]
+    load: [10.0, -50.0, 0.0, 0.0, 0.0, 0.0]
+
+# Distributed Loads (Line Loads on Elements)
+distributed_loads:
+  - element_id: [1] # Apply to element 1 (Beam)
+    # Load Vectors at Start and End of element (Global Coordinates)
+    # Start Vector: [qx, qy, qz]
+    # End Vector:   [qx, qy, qz]
+    load: [[0.0, -10.0, 0.0], [0.0, -10.0, 0.0]] # Uniform load -10kN/m in Y

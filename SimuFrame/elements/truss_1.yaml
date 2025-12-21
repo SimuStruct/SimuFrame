@@ -1,0 +1,113 @@
+# Header with a title and a subtitle
+info:
+  project_name: Truss 1
+  description: Example 1
+  project_version: 1.0
+
+# Analysis general parameters
+analysis:
+  analysis_type: linear       # Options: linear, nonlinear, buckling
+  element_type: truss          # Options: beam, truss
+  number_of_subdivisions: 32  # Number of subdivisions for numerical integration
+
+# Material properties
+materials:
+  # General concrete properties (Units: kN, m)
+  CONCRETE:
+    E: 2.3e7                     # Young's modulus (kPa)
+    nu: 0.2                    # Poisson's ratio
+
+# Section properties
+sections:
+  RECT_BEAM:
+    geometry: tubular
+    material_id: CONCRETE
+    geometry_params:
+      raio_ext: 0.05
+      raio_int: 0.04
+
+# Nodal coordinates [x, y, z] (Units: m)
+nodes:
+  - [0, 0, 0]
+  - [2, 0, 0]
+  - [4, 0, 0]
+  - [0, 2, 0]
+  - [2, 2, 0]
+  - [4, 2, 0]
+  - [0, 0, 2]
+  - [2, 0, 2]
+  - [4, 0, 2]
+  - [0, 2, 2]
+  - [2, 2, 2]
+  - [4, 2, 2]
+
+# List of elements (before assembly) and their corresponding connectivity
+elements:
+  - connec: [0, 1]        # Start node ID, End node ID
+    section_id: RECT_BEAM    # Reference section ID
+  - connec: [1, 2]
+    section_id: RECT_BEAM
+  - connec: [3, 4]
+    section_id: RECT_BEAM
+  - connec: [4, 5]
+    section_id: RECT_BEAM
+  - connec: [6, 7]
+    section_id: RECT_BEAM
+  - connec: [7, 8]
+    section_id: RECT_BEAM
+  - connec: [9, 10]
+    section_id: RECT_BEAM
+  - connec: [10, 11]
+    section_id: RECT_BEAM
+  - connec: [0, 6]
+    section_id: RECT_BEAM
+  - connec: [1, 7]
+    section_id: RECT_BEAM
+  - connec: [2, 8]
+    section_id: RECT_BEAM
+  - connec: [3, 9]
+    section_id: RECT_BEAM
+  - connec: [4, 10]
+    section_id: RECT_BEAM
+  - connec: [5, 11]
+    section_id: RECT_BEAM
+  - connec: [0, 3]
+    section_id: RECT_BEAM
+  - connec: [1, 4]
+    section_id: RECT_BEAM
+  - connec: [2, 5]
+    section_id: RECT_BEAM
+  - connec: [6, 9]
+    section_id: RECT_BEAM
+  - connec: [8, 11]
+    section_id: RECT_BEAM
+  - connec: [6, 1]
+    section_id: RECT_BEAM
+  - connec: [8, 1]
+    section_id: RECT_BEAM
+  - connec: [9, 4]
+    section_id: RECT_BEAM
+  - connec: [11, 4]
+    section_id: RECT_BEAM
+
+# Boundary conditions
+# [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
+supports:
+  # List of Node IDs - DOFs restrained
+  - node_id: [0, 2, 3, 5]
+    boundary_conditions: [0, 1, 2, 3, 4, 5]
+  - node_id: [1, 4, 6, 7, 8, 9, 10, 11]
+    boundary_conditions: [1, 3, 5]
+
+# Nodal loads
+nodal_loads:
+  - node_id: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    load: [0, 0, -30, 0, 0, 0]
+
+# List of distributed loads
+# distributed_loads:
+  # - element_id: 0
+    # Load vectors [qx, qy, qz] at start and end (Global System, Units: kN/m)
+    # load: [[0, 0, -0.2168], [0, 0, -0.2168]]
+  # - element_id: 1
+    # load: [[0, 0, -0.2168], [0, 0, -0.2168]]

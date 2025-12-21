@@ -1,0 +1,270 @@
+# Header with a title and a subtitle
+info:
+  project_name: Frame 3
+  description: Example 3
+  project_version: 1.0
+
+# Analysis general parameters
+analysis:
+  analysis_type: nonlinear    # Options: linear, nonlinear, buckling
+  element_type: beam          # Options: beam, shell, truss
+  number_of_subdivisions: 16   # Number of subdivisions for numerical integration
+
+# Material properties
+materials:
+  # General concrete properties (Units: kN, m)
+  CONCRETE:
+    E: 2.7e7                     # Young's modulus (kPa)
+    nu: 0.2                    # Poisson's ratio
+
+# Section properties
+sections:
+  RECT_BEAM:
+    geometry: rectangular
+    material_id: CONCRETE
+    geometry_params:
+      width: 0.2
+      height: 0.4
+
+# Nodal coordinates [x, y, z] (Units: m)
+nodes:
+  - [0, 0, 0.]
+  - [5, 0, 0.]
+  - [10, 0, 0.]
+  - [0, 5, 0.]
+  - [5, 5, 0.]
+  - [10, 5, 0.]
+  - [0, 10, 0.]
+  - [5, 10, 0.]
+  - [10, 10, 0.]
+  - [0, 0, 4.]
+  - [5, 0, 4.]
+  - [10, 0, 4.]
+  - [0, 5, 4.]
+  - [5, 5, 4.]
+  - [10, 5, 4.]
+  - [0, 10, 4.]
+  - [5, 10, 4.]
+  - [10, 10, 4.]
+  - [0, 0, 8.]
+  - [5, 0, 8.]
+  - [10, 0, 8.]
+  - [0, 5, 8.]
+  - [5, 5, 8.]
+  - [10, 5, 8.]
+  - [0, 10, 8.]
+  - [5, 10, 8.]
+  - [10, 10, 8.]
+  - [0, 0, 12.]
+  - [5, 0, 12.]
+  - [10, 0, 12.]
+  - [0, 5, 12.]
+  - [5, 5, 12.]
+  - [10, 5, 12.]
+  - [0, 10, 12.]
+  - [5, 10, 12.]
+  - [10, 10, 12.]
+  - [0, 0, 16.]
+  - [5, 0, 16.]
+  - [10, 0, 16.]
+  - [0, 5, 16.]
+  - [5, 5, 16.]
+  - [10, 5, 16.]
+  - [0, 10, 16.]
+  - [5, 10, 16.]
+  - [10, 10, 16.]
+
+# List of elements (before assembly) and their corresponding connectivity
+elements:
+  - connec: [0, 9]
+    section_id: RECT_BEAM
+  - connec: [1, 10]
+    section_id: RECT_BEAM
+  - connec: [2, 11]
+    section_id: RECT_BEAM
+  - connec: [3, 12]
+    section_id: RECT_BEAM
+  - connec: [4, 13]
+    section_id: RECT_BEAM
+  - connec: [5, 14]
+    section_id: RECT_BEAM
+  - connec: [6, 15]
+    section_id: RECT_BEAM
+  - connec: [7, 16]
+    section_id: RECT_BEAM
+  - connec: [8, 17]
+    section_id: RECT_BEAM
+  - connec: [9, 18]
+    section_id: RECT_BEAM
+  - connec: [10, 19]
+    section_id: RECT_BEAM
+  - connec: [11, 20]
+    section_id: RECT_BEAM
+  - connec: [12, 21]
+    section_id: RECT_BEAM
+  - connec: [13, 22]
+    section_id: RECT_BEAM
+  - connec: [14, 23]
+    section_id: RECT_BEAM
+  - connec: [15, 24]
+    section_id: RECT_BEAM
+  - connec: [16, 25]
+    section_id: RECT_BEAM
+  - connec: [17, 26]
+    section_id: RECT_BEAM
+  - connec: [18, 27]
+    section_id: RECT_BEAM
+  - connec: [19, 28]
+    section_id: RECT_BEAM
+  - connec: [20, 29]
+    section_id: RECT_BEAM
+  - connec: [21, 30]
+    section_id: RECT_BEAM
+  - connec: [22, 31]
+    section_id: RECT_BEAM
+  - connec: [23, 32]
+    section_id: RECT_BEAM
+  - connec: [24, 33]
+    section_id: RECT_BEAM
+  - connec: [25, 34]
+    section_id: RECT_BEAM
+  - connec: [26, 35]
+    section_id: RECT_BEAM
+  - connec: [27, 36]
+    section_id: RECT_BEAM
+  - connec: [28, 37]
+    section_id: RECT_BEAM
+  - connec: [29, 38]
+    section_id: RECT_BEAM
+  - connec: [30, 39]
+    section_id: RECT_BEAM
+  - connec: [31, 40]
+    section_id: RECT_BEAM
+  - connec: [32, 41]
+    section_id: RECT_BEAM
+  - connec: [33, 42]
+    section_id: RECT_BEAM
+  - connec: [34, 43]
+    section_id: RECT_BEAM
+  - connec: [35, 44]
+    section_id: RECT_BEAM
+  - connec: [9, 10]
+    section_id: RECT_BEAM
+  - connec: [10, 11]
+    section_id: RECT_BEAM
+  - connec: [12, 13]
+    section_id: RECT_BEAM
+  - connec: [13, 14]
+    section_id: RECT_BEAM
+  - connec: [15, 16]
+    section_id: RECT_BEAM
+  - connec: [16, 17]
+    section_id: RECT_BEAM
+  - connec: [9, 12]
+    section_id: RECT_BEAM
+  - connec: [12, 15]
+    section_id: RECT_BEAM
+  - connec: [10, 13]
+    section_id: RECT_BEAM
+  - connec: [13, 16]
+    section_id: RECT_BEAM
+  - connec: [11, 14]
+    section_id: RECT_BEAM
+  - connec: [14, 17]
+    section_id: RECT_BEAM
+  - connec: [18, 19]
+    section_id: RECT_BEAM
+  - connec: [19, 20]
+    section_id: RECT_BEAM
+  - connec: [21, 22]
+    section_id: RECT_BEAM
+  - connec: [22, 23]
+    section_id: RECT_BEAM
+  - connec: [24, 25]
+    section_id: RECT_BEAM
+  - connec: [25, 26]
+    section_id: RECT_BEAM
+  - connec: [18, 21]
+    section_id: RECT_BEAM
+  - connec: [21, 24]
+    section_id: RECT_BEAM
+  - connec: [19, 22]
+    section_id: RECT_BEAM
+  - connec: [22, 25]
+    section_id: RECT_BEAM
+  - connec: [20, 23]
+    section_id: RECT_BEAM
+  - connec: [23, 26]
+    section_id: RECT_BEAM
+  - connec: [27, 28]
+    section_id: RECT_BEAM
+  - connec: [28, 29]
+    section_id: RECT_BEAM
+  - connec: [30, 31]
+    section_id: RECT_BEAM
+  - connec: [31, 32]
+    section_id: RECT_BEAM
+  - connec: [33, 34]
+    section_id: RECT_BEAM
+  - connec: [34, 35]
+    section_id: RECT_BEAM
+  - connec: [27, 30]
+    section_id: RECT_BEAM
+  - connec: [30, 33]
+    section_id: RECT_BEAM
+  - connec: [28, 31]
+    section_id: RECT_BEAM
+  - connec: [31, 34]
+    section_id: RECT_BEAM
+  - connec: [29, 32]
+    section_id: RECT_BEAM
+  - connec: [32, 35]
+    section_id: RECT_BEAM
+  - connec: [36, 37]
+    section_id: RECT_BEAM
+  - connec: [37, 38]
+    section_id: RECT_BEAM
+  - connec: [39, 40]
+    section_id: RECT_BEAM
+  - connec: [40, 41]
+    section_id: RECT_BEAM
+  - connec: [42, 43]
+    section_id: RECT_BEAM
+  - connec: [43, 44]
+    section_id: RECT_BEAM
+  - connec: [36, 39]
+    section_id: RECT_BEAM
+  - connec: [39, 42]
+    section_id: RECT_BEAM
+  - connec: [37, 40]
+    section_id: RECT_BEAM
+  - connec: [40, 43]
+    section_id: RECT_BEAM
+  - connec: [38, 41]
+    section_id: RECT_BEAM
+  - connec: [41, 44]
+    section_id: RECT_BEAM
+
+# Boundary conditions
+# [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
+supports:
+  # List of Node IDs - DOFs restrained
+  - node_id: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    boundary_conditions: [0, 1, 2, 3, 4, 5]
+
+# Nodal loads
+# nodal_loads:
+  # - node_id: 1
+    # load: [0, 10, 0, 0, 0, 0]
+
+# List of distributed loads
+distributed_loads:
+  - element_id: [0, 1, 2, 9, 10, 11, 18, 19, 20, 27, 28, 29]
+    # Load vectors [qx, qy, qz] at start and end (Global System, Units: kN/m)
+    load: [[0.0, 10, 0.0], [0.0, 10, 0.0]]
+  - element_id: [36, 37, 48, 49, 60, 61, 72, 73]
+    load: [[0.0, 10, -20], [0.0, 10, -20]]
+  - element_id: [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 50, 51, 52, 53, 54, 55, 
+          56, 57, 58, 59, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 74, 75, 76, 77,
+      78, 79, 80, 81, 82, 83]
+    load: [[0.0, 0.0, -20], [0.0, 0.0, -20]]
