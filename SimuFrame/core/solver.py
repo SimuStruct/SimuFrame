@@ -939,17 +939,17 @@ def solve_structure(
 
     elif analysis == "nonlinear":
         # Compute displacements, local displacements, local forces, force-displacement history, reaction forces, and convergence data
-        # d, dnl, fnl, f_vs_d, Ra, convergence_data = run_nonlinear_solver(
+        # d, dnl, fnl, f_vs_d, Ra, convergence_data = run_solver(
         #     AnalysisType.ARC_LENGTH,
-        #     F, Ke, estrutura, propriedades, numDOF, GLL, GLe, T,
-        #     NLG=True, lmbda0=0.1, allow_lambda_exceed=True, max_lambda=2.0,
-        #     psi=0.0, abs_tol=1e-6, rel_tol=1e-6,
+        #     F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
+        #     nonlinear=True, lmbda0=0.01, allow_lambda_exceed=False, max_lambda=2.0,
+        #     psi=1.0, abs_tol=1e-6, rel_tol=1e-6,
         # )
 
         d, dnl, fnl, history, Re, convergence_data = run_solver(
             AnalysisType.NEWTON_RAPHSON,
             F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
-            nonlinear=True, num_passos_inicial=5, abs_tol=1e-8, rel_tol=1e-8,
+            nonlinear=True, initial_step=25, abs_tol=1e-8, rel_tol=1e-8,
         )
 
         # Atribuir os deslocamentos
@@ -959,22 +959,22 @@ def solve_structure(
 
         # Atribuir os esforços
         forces["F"] = F
-        forces["R"] = Re - global_force_vector[~free_dofs_mask]
+        forces["R"] = Re - Fr
         forces["fe"] = fnl
 
     elif analysis == "buckling":
-        # Obter os autovalores e autovetores
-        num_modos, autovalores, autovetores = buckling_analysis(
+        # Compute eigenvalues and eigenvectors
+        eigvals, eigvecs = buckling_analysis(
             structure, properties, num_dofs, element_dofs, free_dofs_mask, transformation_matrices, global_elastic_stiffness, fl
         )
 
-        # Atribuir os autovalores e desconsiderar os termos de análise não linear
-        forces["autovalores"] = autovalores
+        # Store eigenvalues and null history data
+        forces["autovalores"] = eigvals
         history = None
         convergence_data = None
 
-        # Atribuir os autovetores
-        displacements["d"] = autovetores
-        displacements["de"] = transformation_matrices @ autovetores[:, element_dofs]
+        # Store eigenvectors
+        displacements["d"] = eigvecs
+        displacements["de"] = T @ eigvecs[:, element_dofs]
 
     return displacements, forces, history, convergence_data
