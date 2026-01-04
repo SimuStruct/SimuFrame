@@ -1,21 +1,21 @@
-# Header with a title and a description
+# Header with a title and a subtitle
 info:
-  project_name: Column 1
-  description: Column 1 example, evaluating the geometric nonlinearity
+  project_name: Truss 4
+  description: Example 4
   project_version: 1.0
 
 # Analysis general parameters
 analysis:
-  analysis_type: buckling
+  analysis_type: nonlinear
   element_type: B33
-  mesh_parameter: 64
+  mesh_parameter: 32
 
 # Material properties
 materials:
   # General properties (Units: kN, m)
   CONCRETE:
-    E: 2.7e7
-    nu: 0.3
+    E: 2.1e6
+    nu: 0.0
 
 # Section properties
 sections:
@@ -23,26 +23,39 @@ sections:
     geometry: circular
     material_id: CONCRETE
     geometry_params:
-      radius: 0.1
+      radius: 0.02
 
 # Nodal coordinates [x, y, z] (Units: m)
 nodes:
   - [0, 0, 0]
-  - [0, 0, 6]
+  - [4, 0, 0]
+  - [0, 0, 2]
+  - [0, 0, 4]
+  - [2, 0, 2]
 
 # List of elements (before assembly) and their corresponding connectivity
 elements:
-  - connec: [0, 1]
+  - connec: [0, 4]
     section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
+  - connec: [1, 4]
+    section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
+  - connec: [2, 4]
+    section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
+  - connec: [3, 4]
+    section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
 
 # Boundary conditions
 # [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
 supports:
   # List of Node IDs - DOFs restrained
-  - node_id: [0]
-    boundary_conditions: [0, 1, 2, 3, 4, 5]
+  - node_id: [0, 1, 2, 3]
+    boundary_conditions: [0, 1, 2]
 
 # Nodal loads
 nodal_loads:
-   - node_id: 1
-     load: [0, 0, -1, 0, 0, 0]
+  - node_id: [4]
+    load: [12, 0, 24, 0, 0, 0]

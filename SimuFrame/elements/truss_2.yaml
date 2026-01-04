@@ -8,7 +8,7 @@ info:
 analysis:
   analysis_type: buckling       # Options: linear, nonlinear, buckling
   element_type: beam          # Options: beam, truss
-  number_of_subdivisions: 32  # Number of subdivisions for numerical integration
+  mesh_parameter: 32  # Number of subdivisions for numerical integration
 
 # Material properties
 materials:
@@ -19,11 +19,11 @@ materials:
 
 # Section properties
 sections:
-  RECT_BEAM:
+  CIRC_BEAM:
     geometry: circular
     material_id: CONCRETE
     geometry_params:
-      raio: 0.05
+      radius: 0.05
 
 # Nodal coordinates [x, y, z] (Units: m)
 nodes:
@@ -38,37 +38,37 @@ nodes:
 # List of elements (before assembly) and their corresponding connectivity
 elements:
   - connec: [0, 1]            # Start node ID, End node ID
-    section_id: RECT_BEAM     # Reference section ID
+    section_id: CIRC_BEAM     # Reference section ID
     releases: [[4], [4]]
   - connec: [1, 2]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [2, 3]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [0, 4]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [4, 1]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [1, 5]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [5, 2]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [2, 6]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [6, 3]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [4, 5]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [5, 6]
-    section_id: RECT_BEAM
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
 
 # Boundary conditions
@@ -84,11 +84,3 @@ supports:
 nodal_loads:
   - node_id: [0, 1, 2, 3, 4, 5, 6]
     load: [0, 0, -100, 0, 0, 0]
-
-# List of distributed loads
-# distributed_loads:
-  # - element_id: 0
-    # Load vectors [qx, qy, qz] at start and end (Global System, Units: kN/m)
-    # load: [[0, 0, -0.2168], [0, 0, -0.2168]]
-  # - element_id: 1
-    # load: [[0, 0, -0.2168], [0, 0, -0.2168]]

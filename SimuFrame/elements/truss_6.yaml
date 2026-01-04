@@ -1,12 +1,12 @@
 # Header with a title and a subtitle
 info:
-  project_name: Truss 5
-  description: Example 5
+  project_name: Truss 6
+  description: Example 6
   project_version: 1.0
 
 # Analysis general parameters
 analysis:
-  analysis_type: linear
+  analysis_type: buckling
   element_type: B33
   mesh_parameter: 32
 
@@ -27,115 +27,96 @@ sections:
 
 # Nodal coordinates [x, y, z] (Units: m)
 nodes:
-  - [0, 0, 0]
-  - [3, 0, 0]
-  - [6, 0, 0]
-  - [9, 0, 0]
-  - [12, 0, 0]
-  - [15, 0, 0]
-  - [18, 0, 0]
-  - [0, 0, 1]
-  - [3, 0, 1.26666666666666666667]
-  - [6, 0, 1.53333333333333333333]
-  - [9, 0, 1.8]
-  - [12, 0, 1.53333333333333333333]
-  - [15, 0, 1.26666666666666666667]
-  - [18, 0, 1]
+- [0, 0, 0]
+- [3, 0, 0]
+- [6, 0, 0]
+- [12, 0, 0]
+- [15, 0, 0]
+- [18, 0, 0]
+- [3, 0, 1.5]
+- [6, 0, 3.0]
+- [9, 0, 4.5]
+- [12, 0, 3.0]
+- [15, 0, 1.5]
 
 # List of elements (before assembly) and their corresponding connectivity
 elements:
   # Bottom chord
   - connec: [0, 1]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [1, 2]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [2, 3]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [3, 4]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [4, 5]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [5, 6]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
 
   # Top chord
+  - connec: [0, 6]
+    section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
+  - connec: [6, 7]
+    section_id: CIRC_BEAM
+    # hinges: [[4], [4]]
   - connec: [7, 8]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [8, 9]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
   - connec: [9, 10]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [10, 11]
+    # hinges: [[4], [4]]
+  - connec: [10, 5]
     section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [11, 12]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [12, 13]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
+    # hinges: [[4], [4]]
 
   # Vertical
-  - connec: [0, 7]
+  - connec: [1, 6]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [1, 8]
+  - connec: [2, 7]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [2, 9]
+  - connec: [3, 9]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [3, 10]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [4, 11]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [5, 12]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [6, 13]
+  - connec: [4, 10]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
 
   # Diagonals
-  - connec: [7, 1]
+  - connec: [1, 7]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [8, 2]
+  - connec: [2, 8]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [9, 3]
+  - connec: [8, 3]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
-  - connec: [11, 3]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [12, 4]
-    section_id: CIRC_BEAM
-    hinges: [[4], [4]]
-  - connec: [13, 5]
+  - connec: [9, 4]
     section_id: CIRC_BEAM
     hinges: [[4], [4]]
 
 # Boundary conditions
 # [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
 supports:
-  - node_id: [0, 6]
+  - node_id: [0, 5]
     boundary_conditions: [0, 1, 2, 3]
-  - node_id: [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13]
+  - node_id: [1, 2, 3, 4, 6, 7, 8, 9, 10]
     boundary_conditions: [1]
 
 # Nodal loads
 nodal_loads:
-  - node_id: [7, 8, 9, 10, 11, 12, 13]
-    load: [0, 0, -8.2, 0, 0, 0]
+  - node_id: [0]
+    load: [0, 0, -3.825, 0, 0, 0]
+  - node_id: [5, 6, 7, 8, 9, 10]
+    load: [0, 0, -7.65, 0, 0, 0]

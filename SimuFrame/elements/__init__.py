@@ -1,9 +1,13 @@
-####################################################################
-# SimuFrame.py                                                     #
-# Análise estrutural de elements de pórtico através do método dos #
-# elements finitos, considerando-se a não linearidade geométrica. #
-#                                                                  #
-# Desenvolvido por: Alysson Barbosa                                #
-# Criado em: 25/12/2023                                            #
-# Última revisão: 20/03/2025                                       #
-####################################################################
+"""
+SimuFrame.elements - Elements module.
+
+Finite element analysis for frame structures with geometric nonlinearity
+using Total Lagrangian formulation and both Newton-Raphson and Arc-Length method.
+
+Author: Alysson Barbosa
+Created: 2023-12-25
+Last Modified: 2026-01-04
+"""
+
+__version__ = "0.3.1"
+__author__ = "Alysson Barbosa"

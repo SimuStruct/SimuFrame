@@ -1,7 +1,7 @@
 # Header with a title and a description
 info:
-  project_name: Frame 1
-  description: Example 1
+  project_name: Frame 2
+  description: Example 2
   project_version: 1.0
 
 # Analysis general parameters
@@ -14,7 +14,7 @@ analysis:
 materials:
   # General properties (Units: kN, m)
   CONCRETE:
-    E: 2e6
+    E: 2.7e7
     nu: 0.2
 
 # Section properties
@@ -23,29 +23,49 @@ sections:
     geometry: rectangular
     material_id: CONCRETE
     geometry_params:
-      width: 0.1
-      height: 0.1
+      width: 0.2
+      height: 0.2
 
 # Nodal coordinates [x, y, z] (Units: m)
 nodes:
   - [0, 0, 0]
+  - [4, 0, 0]
+  - [0, 4, 0]
+  - [4, 4, 0]
   - [0, 0, 4]
   - [4, 0, 4]
+  - [0, 4, 4]
+  - [4, 4, 4]
 
 # List of elements (before assembly) and their corresponding connectivity
 elements:
-  - connec: [0, 1]
+  - connec: [0, 4]
     section_id: RECT_BEAM
-  - connec: [1, 2]
+  - connec: [1, 5]
+    section_id: RECT_BEAM
+  - connec: [2, 6]
+    section_id: RECT_BEAM
+  - connec: [3, 7]
+    section_id: RECT_BEAM
+  - connec: [4, 5]
+    section_id: RECT_BEAM
+  - connec: [6, 7]
+    section_id: RECT_BEAM
+  - connec: [4, 6]
+    section_id: RECT_BEAM
+  - connec: [5, 7]
     section_id: RECT_BEAM
 
 # Boundary conditions
 # [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
 supports:
-  - node_id: [0, 2]
+  - node_id: [0, 1, 2, 3]
     boundary_conditions: [0, 1, 2, 3, 4, 5]
 
-# Nodal loads
-nodal_loads:
-  - node_id: 1
-    load: [0, 10, 0, 0, 0, 0]
+# Distributed loads
+distributed_loads:
+  - element_id: [6, 7]
+    load: [[100, 0, 0], [100, 0, 0]]
+
+  - element_id: [4, 5]
+    load: [[0, 100, 0], [0, 100, 0]]

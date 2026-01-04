@@ -1,22 +1,21 @@
-# Header with a title and a subtitle
+# Header with a title and a description
 info:
-  project_name: Straight cantilever with end moment
-  description: Test NL5 from NAFEMS
+  project_name: Simply supported beam (Figueiras)
+  description: Simply supported beam from Figueiras example, evaluating the geometric nonlinearity
   project_version: 1.0
 
 # Analysis general parameters
 analysis:
-  analysis_type: nonlinear         # Options: linear, nonlinear, buckling
-  element_type: beam          # Options: beam, shell, truss
-  mesh_parameter: 128  # Number of subdivisions for numerical integration
+  analysis_type: nonlinear
+  element_type: B33
+  mesh_parameter: 128
 
 # Material properties
 materials:
-  # General concrete properties (Units: kN, m)
-  # Concrete properties based on Figueiras example
+  # General properties (Units: kN, m)
   CONCRETE:
-    E: 2.1e7                    # Young's modulus (kPa)
-    nu: 0.0                    # Poisson's ratio
+    E: 2500
+    nu: 0.3
 
 # Section properties
 sections:
@@ -24,8 +23,8 @@ sections:
     geometry: rectangular
     material_id: CONCRETE
     geometry_params:
-      width: 0.1
-      height: 0.1
+      width: 1.0
+      height: 0.12
 
   RHS_BEAM:
     geometry: rhs
@@ -69,22 +68,23 @@ sections:
 # Nodal coordinates [x, y, z] (Units: m)
 nodes:
   - [0, 0, 0]
-  - [3.2, 0, 0]
+  - [3, 0, 0]
+  - [6, 0, 0]
 
 # List of elements (before assembly) and their corresponding connectivity
 elements:
-  - connec: [0, 1]        # Start node ID, End node ID
-    section_id: RECT_BEAM    # Reference section ID
+  - connec: [0, 1]
+    section_id: RECT_BEAM
+  - connec: [1, 2]
+    section_id: RECT_BEAM
 
 # Boundary conditions
 # [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
 supports:
-  # List of Node IDs - DOFs restrained
-  - node_id: [0]
-    boundary_conditions: [0, 1, 2, 3, 4, 5]
+  - node_id: [0, 2]
+    boundary_conditions: [0, 1, 2, 3, 5]
 
-# Nodal loads
-nodal_loads:
-  - node_id: 1
-    load: [0, 0, 0, 0, -343.61169648, 0]
-
+# List of distributed loads
+distributed_loads:
+  - element_id: [0, 1]
+    load: [[0, 0, -0.2168], [0, 0, -0.2168]]

@@ -8,7 +8,7 @@ info:
 analysis:
   analysis_type: linear       # Options: linear, nonlinear, buckling
   element_type: truss          # Options: beam, truss
-  number_of_subdivisions: 32  # Number of subdivisions for numerical integration
+  mesh_parameter: 32  # Number of subdivisions for numerical integration
 
 # Material properties
 materials:
