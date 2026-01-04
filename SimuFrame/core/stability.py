@@ -132,7 +132,7 @@ def buckling_analysis(
     fl: npt.NDArray[np.float64],
     num_modes: int = 5,
     seed: int = 42,
-) -> tuple[int, npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Linear buckling analysis using subspace iteration method.
 
@@ -226,4 +226,4 @@ def buckling_analysis(
         # Normalize by this factor
         mode_shapes[i, :] /= max_translation
 
-    return num_modes, valid_eigvals, mode_shapes
+    return valid_eigvals, mode_shapes
