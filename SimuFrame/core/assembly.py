@@ -4,70 +4,17 @@ import numpy.typing as npt
 from scipy.sparse import csc_array
 
 # Local libraries
-from SimuFrame.core.model import Structure
-from SimuFrame.utils.helpers import static_condensation, assemble_sparse_matrix
-
-
-def shape_functions(
-        structure: Structure,
-        xi: float,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """
-    Computes the shape functions for each element.
-
-    Args:
-        structure (Structure): Instance of the Structure class.
-        connectivity (np.ndarray): Integer array of shape (num_elements, num_nodes_per_element).
-
-    Returns:
-        np.ndarray: Array of shape functions for each element.
-    """
-    # Initial data
-    num_elements = structure.num_elements
-
-    # Shape functions for Timoshenko beams (B32)
-    if structure.is_quadratic:
-        # Quadratic shape functions
-        Nq = np.array([0.5 * xi * (xi - 1), 1.0 - xi**2, 0.5 * xi * (xi + 1)])
-
-        # Tile shape functions for each element
-        Nq = np.tile(Nq, (num_elements, 1))
-        
-        # Create array of shape functions
-        N = np.zeros((num_elements, 6, 18))
-        N[:, 0, 0::6] = Nq
-        N[:, 1, 1::6] = Nq
-        N[:, 2, 2::6] = Nq
-        N[:, 3, 3::6] = Nq
-        N[:, 4, 4::6] = Nq
-        N[:, 5, 5::6] = Nq
-    
-    # Shape functions for Euler-Bernoulli beams and trusses (B33, T3D)
-    else:
-        ...
-    return Nq, N
-
-def shape_derivatives(
-        structure: Structure,
-        xi: float
-    ) -> npt.NDArray[np.float64]:
-    # Shape functions for Timoshenko beams (B32)
-    if structure.is_quadratic:
-        # Derivatives of quadratic shape functions
-        dN = np.array([xi - 0.5, -2.0 * xi, xi + 0.5])
-
-        # Tile shape functions for each element
-        dN = np.tile(dN, (structure.num_elements, 1))
-
-    else:
-        ...
-    
-    return dN
+from .model import Structure
+from .formulation import shape_functions, shape_derivatives
+from SimuFrame.utils.helpers import (
+    static_condensation,
+    assemble_sparse_matrix
+)
 
 def degrees_of_freedom(
         structure: Structure,
         connectivity: npt.NDArray[np.integer]
-) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.integer], int]:
+    ) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.integer], int]:
     """
     Determines the system's degrees of freedom (DOFs) configuration.
 
@@ -84,21 +31,21 @@ def degrees_of_freedom(
               True indicates a free DOF, False indicates a constrained DOF.
             - element_dofs (np.ndarray): Integer array of shape (num_elements, dofs_per_element).
               Maps element local DOFs to global indices.
-            - total_dofs (int): The total number of degrees of freedom in the system.
+            - num_dofs (int): Total number of degrees of freedom.
     """
     # Initial metadata
     dofs_per_node = structure.dofs_per_node
     num_nodes = structure.num_nodes
     num_elements = structure.num_elements
-    total_dofs = dofs_per_node * num_nodes
+    num_dofs = dofs_per_node * num_nodes
 
     # Set to store constrained (fixed) degrees of freedom indices
     fixed_dofs_set = set()
 
     # Iterate over structure nodes to find boundary conditions
-    for idx in range(num_nodes):
-        # Current node
-        node = structure.nodes[idx]
+    for node in structure.nodes.values():
+        # Get node index
+        idx = node.id
 
         # Get node identifiers and boundary conditions (BCs)
         boundary_conditions = node.boundary_conditions
@@ -120,7 +67,7 @@ def degrees_of_freedom(
     fixed_dofs_indices = np.array(sorted(list(fixed_dofs_set)), dtype=int)
 
     # Create boolean mask for free degrees of freedom (True = Free, False = Fixed)
-    free_dofs_mask = np.ones(total_dofs, dtype=bool)
+    free_dofs_mask = np.ones(num_dofs, dtype=bool)
     if fixed_dofs_indices.size > 0:
         free_dofs_mask[fixed_dofs_indices] = False
 
@@ -136,7 +83,7 @@ def degrees_of_freedom(
     # Reshape to final format (num_elements, total_element_dofs)
     element_dofs = element_dofs_temp.reshape(num_elements, -1)
 
-    return free_dofs_mask, element_dofs, total_dofs
+    return free_dofs_mask, element_dofs, num_dofs
 
 
 def compute_equivalent_nodal_forces(
@@ -197,18 +144,15 @@ def compute_equivalent_nodal_forces(
             N_T = N.transpose(0, 2, 1)
 
             # Interpolate load vector at point xi
-            # q_interp = (q_local[:, 0, :] * Nq[:, 0] + 
-            #             q_local[:, 1, :] * Nq[:, 1] + 
-            #             q_local[:, 2, :] * Nq[:, 2])
             q_interp = np.einsum('en,eni->ei', Nq, q_local)
-            
+
             # Expand to generalized load vector
             q_vec = np.zeros((num_elements, 6, 1))
             q_vec[:, :3, 0] = q_interp
 
             # Integrate nodal forces
             nodal_forces += (wi * det_J) * (N_T @ q_vec)
-    
+
     else:
         # Extract load components at start (node i) and end (node j)
         q_start = q_local[:, 0, :]
@@ -301,27 +245,26 @@ def assemble_internal_forces(
         return None
 
     # Retrieve local element forces
-    element_local_forces = force_results['fe']
+    num_elements = structure.num_elements
+    element_forces = force_results['fe'].copy()
 
-    # Atribuições dos esforços para plotagem
-    fx = element_local_forces[:, [0, 6], 0]
-    fy = element_local_forces[:, [1, 7], 0]
-    fz = element_local_forces[:, [2, 8], 0]
-    mx = element_local_forces[:, [3, 9], 0]
-    my = element_local_forces[:, [4, 10], 0]
-    mz = element_local_forces[:, [5, 11], 0]
+    # Reshape element forces to (num_elements, 6, 1)
+    element_local_forces = element_forces.reshape(num_elements, -1, 6)
+
+    # Internal forces for plotting and debugging purposes
+    element_local_forces[:, :, 0] *= -1     # Negative sign for axial forces (positive for tensile)
+
+    # Change the orientation of the last force in each element for equilibrium
+    element_local_forces[:, -1, :] *= -1
+
+    # Calculate the mean for the middle node in Timoshenko beams
+    if structure.is_quadratic:
+        element_local_forces[:, 1, :] = (element_local_forces[:, 0, :] + element_local_forces[:, 2, :]) / 2
 
     # Create dictionary with organized internal components
-    internal_components = {
-        'Fx': fx,
-        'Fy': fy,
-        'Fz': fz, 
-        'Mx': mx,
-        'My': my,
-        'Mz': mz
-    }
+    keys = ['Fx', 'Fy', 'Fz', 'Mx', 'My', 'Mz']
 
-    return internal_components
+    return {key: element_local_forces[:, :, i] for i, key in enumerate(keys)}
 
 
 def extract_nodal_displacements(
@@ -536,7 +479,7 @@ def assemble_elastic_stiffness_matrix(
         # Jacobian and its inverse
         det_J = (L / 2).reshape(-1, 1, 1)
         invJ = (2 / L).reshape(-1, 1)
-        
+
         # Bending constitutive matrix
         Db = np.zeros((num_elements, 4, 4))
         Db[:, 0, 0] = EA
@@ -557,15 +500,18 @@ def assemble_elastic_stiffness_matrix(
             # Bending cinematic matrix
             Bb = np.zeros((num_elements, 4, dofs_per_element))
 
-            # Assemble bending cinematic matrix
-            Bb[:, 0, 0::6] = dN * invJ
-            Bb[:, 1, 5::6] = dN * invJ
-            Bb[:, 2, 4::6] = dN * invJ
-            Bb[:, 3, 3::6] = dN * invJ
+            # Get derivative of du/dx
+            du_dx = dN * invJ
 
-            # Assemble bending stiffness matrix, Kb
+            # Assemble bending cinematic matrix
+            Bb[:, 0, 0::6] = du_dx
+            Bb[:, 1, 5::6] = du_dx
+            Bb[:, 2, 4::6] = du_dx
+            Bb[:, 3, 3::6] = du_dx
+
+            # Assemble bending stiffness matrix, [kb]
             kb += (wi * det_J) * (Bb.transpose(0, 2, 1) @ Db @ Bb)
-        
+
         # Gauss points and weights (reduced integration)
         points, weights = np.polynomial.legendre.leggauss(2)
 
@@ -593,10 +539,10 @@ def assemble_elastic_stiffness_matrix(
             Bs[:, 1, 2::6] = dN * invJ
             Bs[:, 1, 4::6] = N
 
-            # Assemble shear stiffness matrix, Ks
+            # Assemble shear stiffness matrix, [ks]
             ks += (wi * det_J) * (Bs.transpose(0, 2, 1) @ Ds @ Bs)
-        
-        # Local elastic stiffness matrix, Ke
+
+        # Local elastic stiffness matrix, [ke]
         ke = kb + ks
 
     else:
@@ -731,91 +677,120 @@ def assemble_geometric_stiffness_matrix(
     Returns:
         global_stiffness_matrix (scipy.sparse): Assembled global stiffness matrix [KE].
     """
-    # Initial metadata
+    # Initial data
     num_elements = structure.num_elements
+    dofs_per_element = structure.dofs_per_element
 
     # Initialize local geometric stiffness matrix
-    local_stiffness = np.zeros((num_elements, 12, 12))
-
-    # Extract normal forces
-    N = local_nodal_forces[:, 6, 0]
+    local_stiffness = np.zeros((num_elements, dofs_per_element, dofs_per_element))
 
     # Extract geometric and constitutive properties
     L = properties['L']
     A = properties['A']
     It = properties['It']
 
-    # Stiffness coefficients
-    # Base parameter: N / L
-    k1 = N / L
+    # Extract normal forces
+    N = local_nodal_forces[:, -6, 0]
 
-    # Shear terms
-    k2 = (6 / 5) * k1
+    if structure.is_quadratic:
+        # Jacobian and its inverse
+        det_J = (L / 2).reshape(-1, 1, 1)
+        invJ = (2 / L).reshape(-1, 1)
 
-    # Bending-rotation coupling
-    k3 = N / 10
+        # Gauss points and weights (full integration)
+        points, weights = np.polynomial.legendre.leggauss(3)
 
-    # Pure rotation terms
-    k4 = k1 * (It / A)
-    k5 = k1 * (2 * L**2 / 15)
+        for xi, wi in zip(points, weights):
+            # Initialize gradient matrix
+            Ge = np.zeros((num_elements, 4, dofs_per_element))
 
-    # Wagner effects (Torque-Twist coupling)
-    k6 = k1 * (-L**2 / 30)
+            # Get shape derivatives
+            dN = shape_derivatives(structure, xi)
+            dN_dx = dN * invJ
 
-    # Populate local geometric stiffness matrix
-    # Axial terms
-    local_stiffness[:, 0, 0] = k1
-    local_stiffness[:, 0, 6] = -k1
-    local_stiffness[:, 6, 0] = -k1
-    local_stiffness[:, 6, 6] = k1
+            # Assemble bending cinematic matrix
+            # Ge[:, 0, 0::6] = dN_dx
+            Ge[:, 1, 1::6] = dN_dx
+            Ge[:, 2, 2::6] = dN_dx
 
-    # Torsional terms
-    local_stiffness[:, 3, 3] = k4
-    local_stiffness[:, 3, 9] = -k4
-    local_stiffness[:, 9, 3] = -k4
-    local_stiffness[:, 9, 9] = k4
+            # Assemble local geometric stiffness matrix
+            local_stiffness += (wi * det_J) * (Ge.transpose(0, 2, 1) @ Ge)
 
-    # Bending terms (xy plane)
-    local_stiffness[:, 1, 1] = k2
-    local_stiffness[:, 1, 5] = k3
-    local_stiffness[:, 1, 7] = -k2
-    local_stiffness[:, 1, 11] = k3
+        # Multiply by axial force
+        local_stiffness *= N.reshape(-1, 1, 1)
 
-    local_stiffness[:, 5, 1] = k3
-    local_stiffness[:, 5, 5] = k5
-    local_stiffness[:, 5, 7] = -k3
-    local_stiffness[:, 5, 11] = k6
+    else:
+        # Stiffness coefficients
+        # Base parameter: N / L
+        k1 = N / L
 
-    local_stiffness[:, 7, 1] = -k2
-    local_stiffness[:, 7, 5] = -k3
-    local_stiffness[:, 7, 7] = k2
-    local_stiffness[:, 7, 11] = -k3
+        # Shear terms
+        k2 = (6 / 5) * k1
 
-    local_stiffness[:, 11, 1] = k3
-    local_stiffness[:, 11, 5] = k6
-    local_stiffness[:, 11, 7] = -k3
-    local_stiffness[:, 11, 11] = k5
+        # Bending-rotation coupling
+        k3 = N / 10
 
-    # Bending terms (xz plane)
-    local_stiffness[:, 2, 2] = k2
-    local_stiffness[:, 2, 4] = -k3
-    local_stiffness[:, 2, 8] = -k2
-    local_stiffness[:, 2, 10] = -k3
+        # Pure rotation terms
+        k4 = k1 * (It / A)
+        k5 = k1 * (2 * L**2 / 15)
 
-    local_stiffness[:, 4, 2] = -k3
-    local_stiffness[:, 4, 4] = k5
-    local_stiffness[:, 4, 8] = k3
-    local_stiffness[:, 4, 10] = k6
+        # Wagner effects (Torque-Twist coupling)
+        k6 = k1 * (-L**2 / 30)
 
-    local_stiffness[:, 8, 2] = -k2
-    local_stiffness[:, 8, 4] = k3
-    local_stiffness[:, 8, 8] = k2
-    local_stiffness[:, 8, 10] = k3
+        # Populate local geometric stiffness matrix
+        # Axial terms
+        local_stiffness[:, 0, 0] = k1
+        local_stiffness[:, 0, 6] = -k1
+        local_stiffness[:, 6, 0] = -k1
+        local_stiffness[:, 6, 6] = k1
 
-    local_stiffness[:, 10, 2] = -k3
-    local_stiffness[:, 10, 4] = k6
-    local_stiffness[:, 10, 8] = k3
-    local_stiffness[:, 10, 10] = k5
+        # Torsional terms
+        local_stiffness[:, 3, 3] = k4
+        local_stiffness[:, 3, 9] = -k4
+        local_stiffness[:, 9, 3] = -k4
+        local_stiffness[:, 9, 9] = k4
+
+        # Bending terms (xy plane)
+        local_stiffness[:, 1, 1] = k2
+        local_stiffness[:, 1, 5] = k3
+        local_stiffness[:, 1, 7] = -k2
+        local_stiffness[:, 1, 11] = k3
+
+        local_stiffness[:, 5, 1] = k3
+        local_stiffness[:, 5, 5] = k5
+        local_stiffness[:, 5, 7] = -k3
+        local_stiffness[:, 5, 11] = k6
+
+        local_stiffness[:, 7, 1] = -k2
+        local_stiffness[:, 7, 5] = -k3
+        local_stiffness[:, 7, 7] = k2
+        local_stiffness[:, 7, 11] = -k3
+
+        local_stiffness[:, 11, 1] = k3
+        local_stiffness[:, 11, 5] = k6
+        local_stiffness[:, 11, 7] = -k3
+        local_stiffness[:, 11, 11] = k5
+
+        # Bending terms (xz plane)
+        local_stiffness[:, 2, 2] = k2
+        local_stiffness[:, 2, 4] = -k3
+        local_stiffness[:, 2, 8] = -k2
+        local_stiffness[:, 2, 10] = -k3
+
+        local_stiffness[:, 4, 2] = -k3
+        local_stiffness[:, 4, 4] = k5
+        local_stiffness[:, 4, 8] = k3
+        local_stiffness[:, 4, 10] = k6
+
+        local_stiffness[:, 8, 2] = -k2
+        local_stiffness[:, 8, 4] = k3
+        local_stiffness[:, 8, 8] = k2
+        local_stiffness[:, 8, 10] = k3
+
+        local_stiffness[:, 10, 2] = -k3
+        local_stiffness[:, 10, 4] = k6
+        local_stiffness[:, 10, 8] = k3
+        local_stiffness[:, 10, 10] = k5
 
     # Static condensation (optional)
     local_stiffness, _ = static_condensation(structure, local_stiffness, local_nodal_forces)

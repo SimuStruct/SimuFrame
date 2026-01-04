@@ -123,7 +123,7 @@ class Rectangular(SectionProperties):
         self.h = height
         self.geometry_type = 'rectangular'
         self.name = f"Rectangular {self.b * 100:.2f} x {self.h * 100:.2f} [cm]"
-        
+
         # Initialize parent class
         super().__init__(material)
 
@@ -219,7 +219,7 @@ class RHS(SectionProperties):
 
         except Exception as e:
             raise ValueError(f"Error attempting to calculate section properties: {str(e)}")
-    
+
     def generate_polydata(self) -> pv.PolyData:
         # Define vertices of the section
         pontos = np.array([
@@ -395,7 +395,7 @@ class IProfile(SectionProperties):
 
         except Exception as e:
             raise ValueError(f"Error attempting to calculate section properties: {str(e)}")
-    
+
     def generate_polydata(self) -> pv.PolyData:
         # Define vertices of the section
         vertices = np.array([
@@ -412,7 +412,7 @@ class IProfile(SectionProperties):
             [-self.tw / 2, -self.h / 2 + self.tf, 0],
             [-self.b/2,  -self.h/2 + self.tf, 0],
         ])
-        
+
         # Define contour of the section
         contour = vertices[range(12)]
 
@@ -475,7 +475,7 @@ class TProfile(SectionProperties):
 
         except Exception as e:
             raise ValueError(f"Error attempting to calculate section properties: {str(e)}")
-    
+
     def generate_polydata(self) -> pv.PolyData:
         # Define vertices of the section
         pontos = np.array([
@@ -484,7 +484,7 @@ class TProfile(SectionProperties):
             [ self.b/2, self.h/2, 0],
             [ self.b/2, self.h/2 - self.tf, 0],
             [-self.b/2, self.h/2 - self.tf, 0],
-            
+
             # Web
             [-self.tw/2, -self.h/2, 0],
             [ self.tw/2, -self.h/2, 0],
@@ -528,6 +528,7 @@ class Structure:
     num_elements: int
     subdivisions: int
     dofs_per_node: int
+    condensation_data: list
 
     def __init__(
         self,
@@ -562,9 +563,8 @@ class Structure:
         # Store initial data
         self.metadata = metadata
         self.element_type = element_type
-        self.subdivisions = max(1, int(subdivisions))
+        self.subdivisions = subdivisions
         self.coordenadas = np.array(coordinates, dtype=np.float64)
-        self.element_type = 'B32'
 
         # Check beam properties
         self.is_quadratic = (self.element_type == 'B32')
@@ -640,6 +640,10 @@ class Structure:
 
         # Gerar a malha final de elements
         self.generate_mesh(self.subdivisions)
+
+        # Store condensation data
+        self.condensation_data = []
+        self.store_condensation_data(releases)
 
         # Adicionar as cargas nodais e distribuídas
         self.add_nodal_loads(nodal_loads)
@@ -718,7 +722,7 @@ class Structure:
         geometry = data.pop("geometry", '')
         if not geometry:
             raise ValueError("Section definition is missing the 'geometry' key.")
-        
+
         # Extract constitutive properties
         elastic_modulus_val = data.pop("E", None)
         nu_val = data.pop("nu", 0.0)
@@ -728,7 +732,7 @@ class Structure:
 
         # Create material
         material = Material(elastic_modulus=elastic_modulus_val, poisson_ratio=nu_val)
-        
+
         # Map the geometry for the correct class
         geometry_class_map = {
             "rectangular": Rectangular,
@@ -744,14 +748,14 @@ class Structure:
         if section_class is None:
             valid_keys = list(geometry_class_map.keys())
             raise ValueError(f"Unknown section geometry '{geometry}'. Valid types: {valid_keys}")
-        
+
         try:
             # Instantiate the section class
             return section_class(material=material, **data)
         except TypeError as e:
             raise ValueError(f"Failed to create '{geometry}' section. Check parameters. Details: {e}")
-        
-    def generate_mesh(self, num_subdivisions: int, decimals: int = 8):
+
+    def generate_mesh(self, mesh_param: int | float, decimals: int = 8):
         """
         Generates the finite element mesh by subdividing original structural members.
 
@@ -759,40 +763,33 @@ class Structure:
         creating intermediate nodes as necessary. Preserves connectivity and properties.
 
         Args:
-            num_subdivisions (int): Number of finite elements per structural member.
+            mesh_param (int | float): Number of finite elements per structural member or element length.
             decimals (int): Precision for node coordinate matching (merging).
         """
-        # Check for element type (quadratic or cubic elements)
-        # No subdivisions
-        if num_subdivisions == 1 and not self.is_quadratic:
-            for member_id, member in self.original_members.items():
-                # Create Element class object
-                self.elements[member_id] = Element(element_id=member_id,
-                                                   conec=member['nodes'],
-                                                   secao=member.get('section'),
-                                                   hinge=member.get('hinges', [[], []])
-                                            )
-
-            self.num_elements = len(self.elements)
-            self.num_nodes = len(self.nodes)
-            return
-
         # coord to index mapping
         coord_map = {tuple(np.round(n.coord, decimals)): i for i, n in self.nodes.items()}
         next_node_id = len(self.nodes)
-
-        # Counter for final element IDs
         current_element_id = 0
 
         # Iterate over original members
         for member in self.original_members.values():
             # Get star and end nodes and hinges for the member
             start_node, end_node = member['nodes'][0], member['nodes'][-1]
+
+            # Get the number of subdivisions based on the type of mesh parameter
+            if isinstance(mesh_param, float):
+                # Get the element length
+                L = np.linalg.norm(end_node.coord - start_node.coord)
+
+                # Get the number of subdivisions for this member
+                num_subdivisions = int(np.ceil(L / mesh_param))
+            elif isinstance(mesh_param, int):
+                num_subdivisions = mesh_param
+
+            # Get section and releases (hinges)
+            section = member.get('section')
             member_releases = member.get('hinges', [[], []])
             start_hinge, end_hinge = member_releases
-
-            # Get section
-            section = member.get('section')
 
             # Generate intermediate points along the member
             num_points = (2 * num_subdivisions) + 1 if self.is_quadratic else (num_subdivisions + 1)
@@ -852,10 +849,50 @@ class Structure:
                     hinge=current_elem_release
                 )
                 current_element_id += 1
-        
+
         # Update Structure state
         self.num_elements = len(self.elements)
         self.num_nodes = len(self.nodes)
+
+    def store_condensation_data(self, releases_map: Dict[int, List[int]]) -> None:
+        # Verify if releases_map is empty
+        if not releases_map:
+            return
+
+        # Initial data
+        dofs_per_element = self.dofs_per_element
+        all_dofs = np.arange(dofs_per_element)
+
+        # Initialize condensed elements list
+        for elem_id, element in self.elements.items():
+            # Start and end releases
+            start_releases = element.hinges[0]
+            end_releases = element.hinges[-1]
+
+            # Skip if no hinges
+            if not start_releases and not end_releases:
+                continue
+
+            # Calculate start degrees of freedom indices
+            start_idx = start_releases
+
+            # Calculate end degrees of freedom indices
+            offset = (self.nodes_per_element - 1) * self.dofs_per_node
+            end_idx = [dof + offset for dof in end_releases]
+
+            # Store the condensed indices for the element
+            condensed_indices = list(start_idx) + end_idx
+
+            # Iterate over condened elements
+            elim = np.array(condensed_indices, dtype=int)
+            kept = np.setdiff1d(all_dofs, elim)
+
+            # Store the condensed data
+            self.condensation_data.append({
+                'id': elem_id,
+                'elim_indices': elim,
+                'kept_indices': kept,
+            })
 
     def define_releases(self, releases_map: Dict[int, List[int]]) -> None:
         """
@@ -916,21 +953,32 @@ class Structure:
 
         # Iterate over the load configuration
         for entry in loads_data:
-            # Node ID and loads
-            node_ids = entry.get('node_id', [])
+            # Node IDs and loads
+            node_id = entry.get('node_id', [])
             load = entry.get('load')
 
+            # Skip if no values found
             if load is None:
                 continue
 
             # Normalize list of node_ids
-            node_ids_list = [node_ids] if isinstance(node_ids, int) else node_ids
+            node_list: List[int] = []
+
+            if isinstance(node_id, int):
+                node_list = [node_id]
+            elif isinstance(node_id, list):
+                node_list = [n for n in node_id if isinstance(n, int)]
+            else:
+                continue
+
+            # Convert loads to numpy array
+            load = np.array(load, dtype=float)
 
             # Apply load to specific nodes accordingly
-            for node_id in node_ids_list:
+            for node_id in node_list:
                 if node_id in self.nodes:
                     self.nodal_loads[node_id] = np.array(load, dtype=float)
-                        
+
     def add_distributed_loads(self, loads_data: List[Dict[str, Any]], num_subdivisions: int):
         """
         Applies distributed loads to elements, handling mesh subdivision.
@@ -943,8 +991,8 @@ class Structure:
             num_subdivisions (int): The subdivision factor used in mesh generation.
         """
         if not loads_data:
-            return 
-        
+            return
+
         # Iterate over the load configuration
         for entry in loads_data:
             # Element ID and loads
@@ -993,7 +1041,7 @@ class Structure:
                             n2_idx = i + 1
 
                             q_vals = [q_interp[n1_idx], q_interp[n2_idx]]
-                        
+
                         # Global ID for the sub-element
                         id_sub = base_id + i
 
