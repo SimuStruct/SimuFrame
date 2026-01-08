@@ -3,8 +3,8 @@ import sys
 import os
 
 # Third-party libraries
-from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 # Author's libraries
 from SimuFrame.GUI.main_window import MainApplicationWindow
@@ -21,7 +21,7 @@ icon_path = os.path.join(
 # Define the app ID for Windows
 if os.name == 'nt':
     import ctypes
-    myappid = 'SimuFrame.0.4.0' 
+    myappid = 'SimuFrame.0.3.1'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 # Initialize the UI
