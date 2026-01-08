@@ -1,16 +1,23 @@
 # Header with a title and a description
 info:
   project_name: Simply supported beam (Figueiras)
-  description: Simply supported beam from Figueiras example, evaluating the geometric nonlinearity
+  description: Simply supported beam from Figueiras example, evaluating the 
+    geometric nonlinearity
   project_version: 1.0
 
 # Analysis general parameters
 analysis:
   analysis_type: nonlinear
   element_type: B33
-  mesh_parameter: 128
+  mesh_parameter: 16.0
+  config:
+    initial_steps: 15
+    max_iterations: 100
+    method: Newton-Raphson
 
 # Material properties
+    arc_type: Spherical
+    phi: 1.0
 materials:
   # General properties (Units: kN, m)
   CONCRETE:
@@ -88,3 +95,6 @@ supports:
 distributed_loads:
   - element_id: [0, 1]
     load: [[0, 0, -0.2168], [0, 0, -0.2168]]
+config:
+  analysis:
+    max_load_factor: 1.0

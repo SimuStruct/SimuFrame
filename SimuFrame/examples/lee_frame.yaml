@@ -1,14 +1,22 @@
 # Header with a title and a subtitle
 info:
   project_name: Lee's Frame
-  description: Test NL7 from NAFEMS Publication NNB, Rev. 1, “NAFEMS Non-Linear Benchmarks,” October 1989.
+  description: Test NL7 from NAFEMS Publication NNB, Rev. 1, “NAFEMS Non-Linear 
+    Benchmarks,” October 1989.
   project_version: 1.0
 
 # Analysis general parameters
 analysis:
   analysis_type: nonlinear
   element_type: B32
-  mesh_parameter: 32
+  mesh_parameter: 32.0
+  config:
+    initial_steps: 10
+    max_iterations: 50
+    method: Arc-Length
+    max_load_factor: 1.7
+    arc_type: Spherical
+    phi: 1.0
 
 # Material properties
 materials:
