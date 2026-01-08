@@ -1,4 +1,5 @@
 # Built-in libraries
+from SimuFrame.GUI.state_manager import AnalysisConfig
 import copy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple, Optional
@@ -34,6 +35,9 @@ class NewtonRaphsonParams:
     abs_tol: float = 1e-8
     rel_tol: float = 1e-8
     close_delay_sec: float = 0.5
+    force_tol: float = 1e-8
+    displ_tol: float = 1e-8
+    energy_tol: float = 1e-10
 
 
 @dataclass
@@ -49,7 +53,9 @@ class ArcLengthParams:
     abs_tol: float = 1e-8
     rel_tol: float = 1e-8
     close_delay_sec: float = 0.5
-
+    force_tol: float = 1e-8
+    displ_tol: float = 1e-8
+    energy_tol: float = 1e-10
 
 @dataclass
 class IncrementState:
@@ -68,7 +74,8 @@ class IncrementState:
 @dataclass
 class ConvergenceData:
     """Data for convergence analysis."""
-
+    analysis: str = "Linear"
+    method: str = "Newton-Raphson (Load Control)"
     increments: List[Dict] = field(default_factory=list)
     iteration_details: List[Dict] = field(default_factory=list)
     lambda_history: List[float] = field(default_factory=lambda: [0.0])
@@ -134,6 +141,8 @@ class ArcLengthSolver:
         # Initialize histories for both force x displacement and convergence data
         self.history = [(0.0, np.zeros((num_dofs, 1)), np.zeros((num_dofs, 1)))]
         self.convergence_data = ConvergenceData()
+        self.convergence_data.method = AnalysisType.ARC_LENGTH.value
+        self.convergence_data.analysis = "Geometric Nonlinear" if nonlinear else "Linear Elastic"
 
         # Visualizer (only if nonlinear = True)
         self.visualizer = SolverVisualizer(AnalysisType.ARC_LENGTH, show_window=nonlinear)
@@ -165,45 +174,55 @@ class ArcLengthSolver:
         # Set the initial load step
         self.state.λ = getattr(self.params, "lmbda0", 1 / 100)
 
+        # Initialize iteration counter and initial norm
         iter = 0
-        norm0 = 1.0
+        converged = False
 
         while iter < self.params.max_iter:
             # Residual forces: : R = λF - Fint
             R = self.state.λ * self.F - self.state.Fint
             norm = np.linalg.norm(R)
 
-            # Update the initial norm of the increment and calcuate the relative norm
-            norm0 = max(norm, 1e-14)
-            rel_norm = norm / norm0
+            # Check divergence
+            if norm > 1e10 or np.isnan(norm):
+                return False
 
             print(
-                f"  Iter {iter + 1}: |R| = {norm:.4e}, |R|/|R0| = {rel_norm:.4e}"
+                f"  Iter {iter + 1}: |R| = {norm:.4e}"
             )
-
-            # Verify convergence
-            if norm < self.params.abs_tol or rel_norm < self.params.rel_tol:
-                # Calculate Δs based on the converged solution
-                self.Δs = np.sqrt(
-                    np.dot(self.state.d.T, self.state.d)[0, 0]
-                    + self.params.psi * self.state.λ**2 * self.FF
-                )
-
-                # Set the arc-length limits based on the converged solution
-                self.Δs_n = self.Δs
-                self.Δs_max = self.Δs * 2
-                self.Δs_min = self.Δs / 1024.0
-
-                # Update the counter (steps)
-                self.counter = 1
-
-                return True
 
             # Solve for displacement increment Δd
             Δd = spsolve(self.state.Kt, R).reshape(-1, 1)
 
             # Update the displacement vector
             self.state.d += Δd
+
+            # Check convergence based on multiple criteria
+            converged, norm_F, norm_d, norm_E = check_convergence(
+                self.state.d, Δd, self.state.λ * self.F, R
+            )
+
+            # Store iteration data
+            self.convergence_data.iteration_details.append(
+                {
+                    "step": self.counter,
+                    "iteration": iter + 1,
+                    "lambda": float(self.state.λ),
+                    "delta_lambda": 0.0,
+                    "delta_lambda_iter": 0.0,
+                    "norm_R": float(norm_F),
+                    "norm_delta_d": float(norm_d),
+                    "norm_A": 0.0,
+                    "arc_length_criterion": False,
+                    "force_criterion": norm_F < self.params.force_tol,
+                    "displ_criterion": norm_d < self.params.displ_tol,
+                    "energy_criterion": norm_E < self.params.energy_tol,
+                    "converged": converged,
+                }
+            )
+
+            if converged:
+                break
 
             # Update tangent stiffness and internal forces
             self.state.Kt, self.state.Fint, self.state.Ra, self.state.fe, self.state.de = global_analysis(
@@ -212,6 +231,23 @@ class ArcLengthSolver:
             )
 
             iter += 1
+
+        if converged:
+            # Calculate initial Arc-Length radius (Δs)
+            self.Δs = np.sqrt(
+                np.dot(self.state.d.T, self.state.d)[0, 0]
+                + self.params.psi * self.state.λ**2 * self.FF
+            )
+
+            # Set the arc-length limits based on the converged solution
+            self.Δs_n = self.Δs
+            self.Δs_max = self.Δs * 2
+            self.Δs_min = self.Δs / 1024.0
+
+            # Update the counter (steps)
+            self.counter = 1
+
+            return True
 
         return False
 
@@ -268,10 +304,9 @@ class ArcLengthSolver:
         converged = False
         iter = 0
         norm = 1.0
-        norm0 = None
 
         while iter < self.params.max_iter:
-            # Residue: R = λ*F - Fint
+            # Residue: R = Fint - λ*F
             R = self.state.Fint - self.state.λ * self.F
             norm_R = np.linalg.norm(R)
 
@@ -281,23 +316,19 @@ class ArcLengthSolver:
             # Combined norm (total)
             norm = np.sqrt(norm_R**2 + A**2)
 
-            # Define relative residual for arc-length solver iteration
-            norm0 = max(norm, 1e-14)
-            rel_norm = norm / norm0
+            # Check divergence
+            if norm > 1e10 or np.isnan(norm):
+                print("    Divergence detected!")
+                return False, iter, float(norm)
 
             print(
                 f"    Iter {iter}: |Total| = {norm:.4e}, |R| = {norm_R:.4e}, "
-                f"|A| = {abs(A):.4e}, Rel = {rel_norm:.4e}"
+                f"|A| = {abs(A):.4e}"
             )
-
-            # Check convergence
-            if norm < self.params.abs_tol or rel_norm < self.params.rel_tol:
-                converged = True
-                break
 
             # Check divergence
             if norm > 1e10 or np.isnan(norm):
-                print("    Divergência detectada!")
+                print("    Divergence detected!")
                 return False, iter, float(norm)
 
             # Solve both linear systems (external and residual forces)
@@ -323,25 +354,42 @@ class ArcLengthSolver:
             self.state.d += du
             self.state.λ += dlmbda
 
-            # Update tangent stiffness and internal forces
-            self.state.Kt, self.state.Fint, self.state.Ra, self.state.fe, self.state.de = global_analysis(
-                self.state.d, self.structure, self.props,  self.num_dofs,
-                self.free_dofs, self.el_dofs, self.T, self.nonlinear
+            # Arc-length restriction criteria
+            arc_length_criteria = (norm < self.params.abs_tol)
+
+            # Check convergence
+            converged, _, norm_d, norm_E = check_convergence(
+                self.state.d, du, self.state.λ * self.F, R, arc_length_criteria
             )
 
             # Store iteration data
             self.convergence_data.iteration_details.append(
                 {
-                    "iteration": iter,
+                    "step": self.counter,
+                    "iteration": iter + 1,
                     "lambda": float(self.state.λ),
                     "delta_lambda": float(Δλ),
                     "delta_lambda_iter": float(dlmbda),
                     "norm_R": float(norm_R),
                     "norm_A": float(abs(A)),
-                    "norm": float(norm),
-                    "norm_delta_d": float(np.linalg.norm(du)),
-                    "converged": False,
+                    "total_norm": float(norm),
+                    "norm_delta_d": float(norm_d),
+                    "arc_length_criterion": arc_length_criteria,
+                    "force_criterion": norm_R < self.params.force_tol,
+                    "displ_criterion": norm_d < self.params.displ_tol,
+                    "energy_criterion": norm_E < self.params.energy_tol,
+                    "converged": converged,
                 }
+            )
+
+            # Check convergence
+            if converged:
+                break
+
+            # Update tangent stiffness and internal forces
+            self.state.Kt, self.state.Fint, self.state.Ra, self.state.fe, self.state.de = global_analysis(
+                self.state.d, self.structure, self.props,  self.num_dofs,
+                self.free_dofs, self.el_dofs, self.T, self.nonlinear
             )
 
             iter += 1
@@ -441,7 +489,7 @@ class ArcLengthSolver:
             self.converged = False
 
             # Arc-Length corrector step
-            converged, iteracao, norm_total = self._arc_length_iteration(Δd, Δλ)
+            converged, iters, final_norm = self._arc_length_iteration(Δd, Δλ)
 
             # Success - accept increment
             if converged:
@@ -449,7 +497,7 @@ class ArcLengthSolver:
                 self.convergence_data.accepted_increments += 1
                 consecutive_failures = 0
 
-                print(f"\n  ✓ CONVERGED in {iteracao} iterations")
+                print(f"\n  ✓ CONVERGED in {iters} iterations")
                 print(f"    λ = {self.state.λ:.6f}")
 
                 # Save Δs used in this step before
@@ -473,16 +521,29 @@ class ArcLengthSolver:
                 self.convergence_data.lambda_history.append(self.state.λ)
                 self.convergence_data.max_displ_history.append(max_displ)
 
+                # Store accepted increment data
+                self.convergence_data.increments.append({
+                    "step": self.counter,
+                    "lambda": float(self.state.λ),
+                    "delta_lambda": float(self.state.λ - self.λ_n_1),
+                    "arc_length": float(self.Δs),
+                    "iterations": iters,
+                    "norm_R": float(final_norm),
+                    "max_displacement": float(np.max(np.abs(self.state.d))),
+                    "accepted": True,
+                    "observations": "Converged"
+                })
+
                 # Update visualizer
                 self.visualizer.update(
                     self.convergence_data.max_displ_history,
                     self.convergence_data.lambda_history,
                     self.counter,
-                    iteracao,
+                    iters,
                     self.state.λ,
                     max_displ,
                     self.Δs,
-                    norm_total,
+                    final_norm,
                     self.params.allow_lambda_exceed,
                     self.params.max_lambda,
                 )
@@ -508,6 +569,27 @@ class ArcLengthSolver:
             # Failure - restore state and reduce Δs
             else:
                 print(f"\n  ✗ FAILED after {iter} iterations")
+                self.convergence_data.rejected_increments += 1
+
+                # Store rejected increment data
+                self.convergence_data.increments.append({
+                    "increment": self.counter + 1,
+                    "lambda": float(self.state.λ),
+                    "delta_lambda": 0.0,
+                    "arc_length": float(self.Δs),
+                    "iterations": iters,
+                    "norm_R": float(final_norm),
+                    "max_displacement": float(np.max(np.abs(self.state.d))),
+                    "accepted": False,
+                    "observations": "Diverged"
+                })
+
+                # Add to Convergence Plot (Red Crosses)
+                if not hasattr(self.convergence_data, 'rejected_points'):
+                        self.convergence_data.rejected_points = {'displ': [], 'lambda': []}
+                self.convergence_data.rejected_points['displ'].append(np.max(np.abs(self.state.d)))
+                self.convergence_data.rejected_points['lambda'].append(self.state.λ)
+
                 self._restore_state(backup)
                 self.Δs = backup_Δs
                 self.converged = False
@@ -528,6 +610,10 @@ class ArcLengthSolver:
                     print(f"  Δλ = {self.Δs:.6e} (minimum = {self.Δs_min:.6e})")
                     print(f"  Consecutive failures = {consecutive_failures}")
                     break
+
+        self.convergence_data.final_lambda = self.state.λ
+        self.convergence_data.max_displacement = np.max(np.abs(self.state.d))
+        self.convergence_data.converged = success
 
         # End visualizer
         self.visualizer.finalize(
@@ -591,8 +677,10 @@ class NewtonRaphsonSolver:
         self.Δλ_min = self.Δλ / (params.increase_factor**params.max_cut_back)
 
         # Output history
-        self.f_vs_d = [(0.0, np.zeros((num_dofs, 1)), np.zeros((num_dofs, 1)))]
+        self.history = [(0.0, np.zeros((num_dofs, 1)), np.zeros((num_dofs, 1)))]
         self.convergence_data = ConvergenceData()
+        self.convergence_data.method = AnalysisType.NEWTON_RAPHSON.value
+        self.convergence_data.analysis = "Geometric Nonlinear" if nonlinear else "Linear Elastic"
 
         # Visualizer (only if nonlinear=True)
         self.visualizer = SolverVisualizer(AnalysisType.NEWTON_RAPHSON, show_window=nonlinear)
@@ -636,12 +724,14 @@ class NewtonRaphsonSolver:
             # Limit load factor to not exceed 1.0
             lambda_target = min(self.state.λ + self.Δλ, 1.0)
 
+            # Store previous lambda
+            prev_lambda = self.state.λ
+
             # Update load factor
             self.state.λ = lambda_target
 
             iter = 0
             norm = 1.0
-            norm0 = 1.0
             converged = False
 
             # Newton-Raphson iterations
@@ -655,18 +745,9 @@ class NewtonRaphsonSolver:
                     converged = False
                     break
 
-                # Update the initial norm of the increment and calcuate the relative norm
-                norm0 = max(norm, 1e-14)
-                rel_norm = norm / norm0
-
                 print(
-                    f"  Iter {iter + 1}: |R| = {norm:.4e}, |R|/|R0| = {rel_norm:.4e}"
+                    f"  Iter {iter + 1}: |R| = {norm:.4e}"
                 )
-
-                # # Check convergence
-                # if norm < self.params.abs_tol or rel_norm < self.params.rel_tol:
-                #     converged = True
-                #     break
 
                 # Solve for displacement increment Δd
                 Δd = spsolve(self.state.Kt, R).reshape(-1, 1)
@@ -674,9 +755,26 @@ class NewtonRaphsonSolver:
                 # Update the displacement vector
                 self.state.d += Δd
 
-                # Check convergence based on displacement increment
-                converged = check_convergence(
+                # Check convergence based on multiple criteria
+                converged, norm_R, norm_d, norm_E = check_convergence(
                     self.state.d, Δd, self.state.λ * self.F, R
+                )
+
+                # Store iteration data
+                self.convergence_data.iteration_details.append(
+                    {
+                        "step": step,
+                        "iteration": iter + 1,
+                        "lambda": float(self.state.λ),
+                        "delta_lambda": float(self.state.λ - prev_lambda),
+                        "norm_R": float(norm_R),
+                        "norm_d": float(norm_d),
+                        "norm_E": float(norm_E),
+                        "force_criterion": norm_R < self.params.force_tol,
+                        "displ_criterion": norm_d < self.params.displ_tol,
+                        "energy_criterion": norm_E < self.params.energy_tol,
+                        "converged": converged,
+                    }
                 )
 
                 # Exit if converged
@@ -705,11 +803,25 @@ class NewtonRaphsonSolver:
                 force[self.free_dofs] = self.state.λ * self.F
                 displ = np.zeros((self.num_dofs, 1), dtype=float)
                 displ[self.free_dofs] = self.state.d
-                self.f_vs_d.append((float(self.state.λ), force, displ))
+                self.history.append((float(self.state.λ), force, displ))
 
                 max_displ = np.max(np.abs(self.state.d))
                 self.convergence_data.lambda_history.append(self.state.λ)
                 self.convergence_data.max_displ_history.append(max_displ)
+
+                # Store accepted increment data
+                self.convergence_data.increments.append({
+                    "step": step,
+                    "lambda": float(self.state.λ),
+                    "delta_lambda": float(self.Δλ),
+                    "iterations": iter + 1,
+                    "norm_R": float(norm_R),
+                    "norm_d": float(norm_d),
+                    "norm_E": float(norm_E),
+                    "max_displacement": float(max_displ),
+                    "accepted": True,
+                    "observations": "Converged"
+                })
 
                 # Update visualizer
                 self.visualizer.update(
@@ -746,6 +858,32 @@ class NewtonRaphsonSolver:
             # Failure - restore state and reduce Δλ
             else:
                 print(f"\n  ✗ FAILED after {iter} iterations")
+
+                # Store rejected increment
+                self.convergence_data.rejected_increments += 1
+                max_displ = np.max(np.abs(self.state.d))
+
+                # Add to Convergence Table
+                self.convergence_data.increments.append({
+                    "step": step,
+                    "lambda": float(self.state.λ),
+                    "delta_lambda": float(self.Δλ),
+                    "iterations": iter,
+                    "norm_R": float(norm_R),
+                    "norm_d": float(norm_d),
+                    "norm_E": float(norm_E),
+                    "max_displacement": float(max_displ),
+                    "accepted": False,
+                    "observations": "Diverged / Max Iter. Reached"
+                })
+
+                # Add to Convergence Plot (Red Crosses)
+                if not hasattr(self.convergence_data, 'rejected_points'):
+                        self.convergence_data.rejected_points = {'displ': [], 'lambda': []}
+
+                self.convergence_data.rejected_points['displ'].append(max_displ)
+                self.convergence_data.rejected_points['lambda'].append(self.state.λ)
+
                 self._restore_state(backup)
                 self.Δλ *= self.params.cut_back_divergence
                 self.converged = False
@@ -767,6 +905,12 @@ class NewtonRaphsonSolver:
                     print(f"  Consecutive failures = {consecutive_failures}")
                     break
 
+        # Final update of convergence summary
+        self.convergence_data.total_increments = step
+        self.convergence_data.final_lambda = self.state.λ
+        self.convergence_data.max_displacement = np.max(np.abs(self.state.d))
+        self.convergence_data.converged = success
+
         # End visualizer
         self.visualizer.finalize(
             success,
@@ -780,7 +924,7 @@ class NewtonRaphsonSolver:
             self.state.d,
             self.state.de,
             self.state.fe,
-            self.f_vs_d,
+            self.history,
             self.state.Ra,
             self.convergence_data,
         )
@@ -840,10 +984,11 @@ def run_solver(
 
 def solve_structure(
     structure: Structure,
+    config: AnalysisConfig,
     properties: dict,
     num_dofs: int,
     free_dofs_mask: npt.NDArray[np.bool_],
-    element_dofs: npt.NDArray[np.int_],
+    element_dofs: npt.NDArray[np.integer],
     transformation_matrices: npt.NDArray[np.float64],
     global_elastic_stiffness: csc_array,
     element_elastic_stiffness: npt.NDArray[np.float64],
@@ -855,6 +1000,7 @@ def solve_structure(
 
     Args:
         structure (Structure): Instance of the Structure class.
+        config (AnalysisConfig): Configuration for the analysis.
         properties (dict): Dictionary containing element properties.
         num_dofs (int): Total number of degrees of freedom.
         free_dofs_mask (np.ndarray): Boolean array indicating free degrees of freedom.
@@ -875,7 +1021,7 @@ def solve_structure(
     # Initial data
     T = transformation_matrices
     fq = equivalent_nodal_forces
-    analysis = structure.analysis
+    analysis = config.analysis
 
     # Initialize variables
     forces: Dict[str, npt.NDArray[np.float64]] = {}
@@ -939,18 +1085,34 @@ def solve_structure(
 
     elif analysis == "nonlinear":
         # Compute displacements, local displacements, local forces, force-displacement history, reaction forces, and convergence data
-        # d, dnl, fnl, f_vs_d, Ra, convergence_data = run_solver(
-        #     AnalysisType.ARC_LENGTH,
-        #     F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
-        #     nonlinear=True, lmbda0=0.01, allow_lambda_exceed=False, max_lambda=2.0,
-        #     psi=1.0, abs_tol=1e-6, rel_tol=1e-6,
-        # )
+        if config.nonlinear_method == 'Arc-Length':
+            # Get user data
+            psi = config.psi
+            max_iter = config.max_iterations
+            max_lambda = config.max_load_factor
+            initial_steps = config.initial_steps
+            lmbda0 = 1.0 / initial_steps
+            allow_lambda_exceed = True if max_lambda > 1.0 else False
 
-        d, dnl, fnl, history, Re, convergence_data = run_solver(
-            AnalysisType.NEWTON_RAPHSON,
-            F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
-            nonlinear=True, initial_step=25, abs_tol=1e-8, rel_tol=1e-8,
-        )
+            # Run solver
+            d, dnl, fnl, history, Re, convergence_data = run_solver(
+                AnalysisType.ARC_LENGTH,
+                F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
+                nonlinear=True, lmbda0=lmbda0, max_iter=max_iter, allow_lambda_exceed=allow_lambda_exceed,
+                max_lambda=max_lambda, psi=psi, abs_tol=1e-8,
+            )
+
+        elif config.nonlinear_method == 'Newton-Raphson':
+            # Get user data
+            initial_steps = config.initial_steps
+            max_iter = config.max_iterations
+
+            # Run solver
+            d, dnl, fnl, history, Re, convergence_data = run_solver(
+                AnalysisType.NEWTON_RAPHSON,
+                F, global_elastic_stiffness, structure, properties, num_dofs, free_dofs_mask, element_dofs, transformation_matrices,
+                nonlinear=True, initial_step=initial_steps, max_iter=max_iter, abs_tol=1e-8, rel_tol=1e-8,
+            )
 
         # Atribuir os deslocamentos
         dg[free_dofs_mask] = d
@@ -963,9 +1125,13 @@ def solve_structure(
         forces["fe"] = fnl
 
     elif analysis == "buckling":
+        # Get user data
+        num_modes = config.num_modes
+
         # Compute eigenvalues and eigenvectors
         eigvals, eigvecs = buckling_analysis(
-            structure, properties, num_dofs, element_dofs, free_dofs_mask, transformation_matrices, global_elastic_stiffness, fl
+            structure, properties, num_dofs, element_dofs, free_dofs_mask,
+            transformation_matrices, global_elastic_stiffness, fl, num_modes=num_modes
         )
 
         # Store eigenvalues and null history data
