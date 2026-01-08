@@ -38,6 +38,24 @@ analysis:
   # Example: if mesh_parameter = 0.2 and the corresponding beam length is 10 m, the member will be subdivided into (10 / 0.2) = 50 elements.
   mesh_parameter: 1
 
+  # Configuration options for the analysis (nonlinear and buckling only).
+  config:
+    # Initial steps, or load increments, for the nonlinear analysis. The solver is adaptative, therefore
+    # it may require less steps than specified here.
+    initial_steps: 10
+    # Maximum number of iterations for nonlinear analysis (Load Control - Newton-Raphson)
+    max_iterations: 100
+    # Method for the nonlinear analysis (Newton-Raphson or Arc-Length)
+    method: Newton-Raphson
+    # If Arc-Length method is selected, the psi value must be defined. If 'arc_type' is Cylindrical, psi = 1.0;
+    # if 'arc_type' is Spherical, psi = 0.0; if 'arc_type' is Custom, the user must define psi.
+    arc_type: Cylindrical
+    psi: 1.0
+    # If the user wants to exceed the maximum load factor (post-critical analysis), it must define the desired load factor.
+    max_load_factor: 2.0
+    # If 'analysis_type' is Buckling, the user must define the desired number of buckling modes.
+    buckling_modes: 10
+
 # ------------------------------------------------------------------------------
 # 3. MATERIALS
 # ------------------------------------------------------------------------------
