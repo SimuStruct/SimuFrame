@@ -228,7 +228,7 @@ class SimuController(QObject):
                 'method': ('analysis', 'config', 'method'),
                 'max_load_factor': ('analysis', 'config', 'max_load_factor'),
                 'arc_type': ('analysis', 'config', 'arc_type'),
-                'phi': ('analysis', 'config', 'phi'),
+                'psi': ('analysis', 'config', 'psi'),
                 'buckling_modes': ('analysis', 'config', 'buckling_modes')
             }
 
@@ -263,7 +263,7 @@ class SimuController(QObject):
                 if self.state.config.nonlinear_method == 'Arc-Length':
                     self.state.config.max_load_factor = parameters.get('max_load_factor', 1)
                     self.state.config.arc_type = parameters.get('arc_type', 'Spherical')
-                    self.state.config.phi = parameters.get('phi', 1.0)
+                    self.state.config.psi = parameters.get('psi', 1.0)
 
             elif analysis_type == 'buckling':
                 self.state.config.buckling_modes = parameters.get('buckling_modes', 5)
