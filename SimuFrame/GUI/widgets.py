@@ -1,7 +1,7 @@
 # Third-party libraries
 import qtawesome as qta
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QComboBox, QLabel, QGroupBox, QRadioButton,
+    QWidget, QVBoxLayout, QComboBox, QLabel, QGroupBox, QRadioButton, QTreeWidgetItem,
     QTreeWidget, QDoubleSpinBox, QFrame, QCheckBox, QTableWidget, QHeaderView, QToolBar
 )
 from PySide6.QtGui import QIcon, QAction, QPixmap, QPainter, QFont
@@ -13,14 +13,18 @@ def _create_table_tab(headers):
     """Create a tab with a table."""
     tab = QWidget()
     tab_layout = QVBoxLayout(tab)
-    tab_layout.setContentsMargins(5, 5, 5, 5)  # Menos margem
+    tab_layout.setContentsMargins(5, 5, 5, 5)
 
+    # Create table
     table = QTableWidget(0, len(headers))
     table.setHorizontalHeaderLabels(headers)
     table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     table.setAlternatingRowColors(True)
     table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
-    
+
+    # Hide vertical headers
+    table.verticalHeader().setVisible(False)
+
     table.setStyleSheet("""
         QTableWidget {
             background-color: white; border: none;
@@ -119,7 +123,7 @@ def create_scale_panel(main_window):
     layout.addWidget(main_window.scale_spinbox)
     return group_box
 
-def create_results_tree(main_window):
+def create_results_tree(main_window, is_buckling=False):
     tree = QTreeWidget()
     tree.setHeaderLabel("Results")
     tree.setStyleSheet("""
@@ -135,9 +139,20 @@ def create_results_tree(main_window):
         QTreeWidget::item { padding: 7px; border-radius: 4px; color: #1e293b; }
         QTreeWidget::item:hover { background-color: #f1f5f9; }
         QTreeWidget::item:selected { background-color: #dbeafe; color: #1e293b; }
+        QTreeWidget::item:disabled {
+            color: #94a3b8;
+            background-color: transparent;
+        }
+        QTreeWidget::branch:closed:has-children:disabled {
+            image: none;
+        }
+        QTreeWidget::branch:open:has-children:disabled {
+            image: none;
+        }
         QTreeWidget::indicator { width: 18px; height: 18px; border-radius: 4px; }
         QTreeWidget::indicator:unchecked { border: 2px solid #cbd5e1; background-color: white; }
         QTreeWidget::indicator:unchecked:hover { border-color: #3b82f6; }
+        QTreeWidget::indicator:unchecked:disabled { border-color: #e2e8f0; background-color: #f8fafc; }
         QTreeWidget::indicator:checked { background-color: #fbbf24; border: 2px solid #fbbf24; }
         QTreeWidget::indicator:checked:hover { background-color: #f59e0b; border: 2px solid #f59e0b; }
     """)
@@ -152,16 +167,18 @@ def create_results_tree(main_window):
     main_window.add_tree_child(parent_deform, "θy", "θy")
     main_window.add_tree_child(parent_deform, "θz", "θz")
 
-    parent_members = main_window.add_tree_parent(tree, "Membros")
-    child_forces = main_window.add_tree_parent(parent_members, "Esforços Internos")
-    main_window.add_tree_child(child_forces, "N - Axial", "fx")
-    main_window.add_tree_child(child_forces, "Vy - Cortante Y", "fy")
-    main_window.add_tree_child(child_forces, "Vz - Cortante Z", "fz")
-    main_window.add_tree_child(child_forces, "Mt - Torçor", "mx")
-    main_window.add_tree_child(child_forces, "My - Fletor Y", "my")
-    main_window.add_tree_child(child_forces, "Mz - Fletor Z", "mz")
+    # Populate tree with internal forces options for members
+    parent_members = main_window.add_tree_parent(tree, "Members")
+    child_forces = main_window.add_tree_parent(parent_members, "Internal Forces")
+    main_window.add_tree_child(child_forces, "N - Normal", "fx")
+    main_window.add_tree_child(child_forces, "Vy - Shear Y", "fy")
+    main_window.add_tree_child(child_forces, "Vz - Shear Z", "fz")
+    main_window.add_tree_child(child_forces, "Mt - Torsion", "mx")
+    main_window.add_tree_child(child_forces, "My - Moment Y", "my")
+    main_window.add_tree_child(child_forces, "Mz - Moment Z", "mz")
 
-    parent_reactions = main_window.add_tree_parent(tree, "Reações de Apoio")
+    # Populate tree with support reactions options
+    parent_reactions = main_window.add_tree_parent(tree, "Support Reactions")
     main_window.add_tree_child(parent_reactions, "Px", "rx")
     main_window.add_tree_child(parent_reactions, "Py", "ry")
     main_window.add_tree_child(parent_reactions, "Pz", "rz")
@@ -169,11 +186,21 @@ def create_results_tree(main_window):
     main_window.add_tree_child(parent_reactions, "My", "rmy")
     main_window.add_tree_child(parent_reactions, "Mz", "rmz")
 
+    # Disable internal forces and reactions for buckling analysis
+    if is_buckling:
+        parents_to_lock = [child_forces, parent_members, parent_reactions]
+
+        # Disable parent items and prevent expansion
+        for parent in parents_to_lock:
+            parent.setExpanded(False)
+            parent.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
+            parent.setFlags(Qt.ItemFlag.NoItemFlags)
+
     return tree
-    
+
 
 def create_options_panel(main_window):
-    group_box = QGroupBox("Opções de Visualização")
+    group_box = QGroupBox("Visualization Options")
     group_box.setStyleSheet("""
         QGroupBox {
             font-size: 13px; font-weight: bold; color: #1e293b;
@@ -190,8 +217,8 @@ def create_options_panel(main_window):
     layout.setContentsMargins(12, 20, 12, 12)
     layout.setSpacing(8)
 
-    main_window.radio_diagram = QRadioButton("Com Diagrama")
-    main_window.radio_colormap = QRadioButton("Apenas Colormap")
+    main_window.radio_diagram = QRadioButton("Diagram")
+    main_window.radio_colormap = QRadioButton("Colormap")
     main_window.radio_colormap.setChecked(True)
     radio_button_style = """
         QRadioButton {
@@ -216,7 +243,7 @@ def create_options_panel(main_window):
     separator.setStyleSheet("border-top: 1px solid #e2e8f0; margin: 5px 0;")
     layout.addWidget(separator)
 
-    main_window.show_section_checkbox = QCheckBox("Exibir seção transversal")
+    main_window.show_section_checkbox = QCheckBox("Show Cross-Section")
     main_window.show_section_checkbox.setChecked(True)
     checkbox_style = """
         QCheckBox {
@@ -232,11 +259,11 @@ def create_options_panel(main_window):
     """
     main_window.show_section_checkbox.setStyleSheet(checkbox_style)
     layout.addWidget(main_window.show_section_checkbox)
-    
+
     return group_box
 
 def create_view_icon(h_axis: str, v_axis: str, view_label: str) -> QIcon:
-    """Cria dinamicamente um ícone vetorial (SVG) para vista ortogonal."""
+    """Dynamically creates a vector icon (SVG) for orthogonal view."""
     colors = {'X': "#F57033", 'Y': '#24A148', 'Z': '#0F62FE'}
     h_color = colors.get(h_axis, 'black')
     v_color = colors.get(v_axis, 'black')
@@ -262,9 +289,9 @@ def create_view_icon(h_axis: str, v_axis: str, view_label: str) -> QIcon:
     return QIcon(pixmap)
 
 def setup_view_toolbar(main_window):
-    """Cria uma barra de ferramentas com botões para controle de vistas."""
-    toolbar = QToolBar("Barra de Vistas")
-    toolbar.setIconSize(QSize(22, 22)) # Ligeiramente menor
+    """Creates a toolbar with buttons for view control."""
+    toolbar = QToolBar("View")
+    toolbar.setIconSize(QSize(22, 22))
     toolbar.setStyleSheet("""
         QToolBar {
             background-color: white;
@@ -292,43 +319,43 @@ def setup_view_toolbar(main_window):
     """)
     color = '#475569'
 
-    action_reset_cam = QAction(qta.icon('fa5s.expand-arrows-alt', color=color), "Resetar Câmera", main_window)
+    action_reset_cam = QAction(qta.icon('fa5s.expand-arrows-alt', color=color), "Reset View", main_window)
     action_reset_cam.triggered.connect(lambda: main_window.plotter.reset_camera())
     toolbar.addAction(action_reset_cam)
     toolbar.addSeparator()
 
-    action_iso = QAction(qta.icon('fa5s.cube', color=color), "Vista Isométrica", main_window)
+    action_iso = QAction(qta.icon('fa5s.cube', color=color), "Isometric View", main_window)
     action_iso.triggered.connect(lambda: main_window.plotter.isometric_view())
     toolbar.addAction(action_iso)
 
     icon_xy = create_view_icon(h_axis='X', v_axis='Y', view_label='Z')
-    action_xy = QAction(icon_xy, "Vista Superior (de Z)", main_window)
+    action_xy = QAction(icon_xy, "Top View (-Z)", main_window)
     action_xy.triggered.connect(lambda: main_window.plotter.view_xy())
     toolbar.addAction(action_xy)
 
     icon_yz = create_view_icon(h_axis='Y', v_axis='Z', view_label='X')
-    action_yz = QAction(icon_yz, "Vista Frontal (de X)", main_window)
+    action_yz = QAction(icon_yz, "Front View (-X)", main_window)
     action_yz.triggered.connect(lambda: main_window.plotter.view_yz())
     toolbar.addAction(action_yz)
 
     icon_xz = create_view_icon(h_axis='X', v_axis='Z', view_label='Y')
-    action_xz = QAction(icon_xz, "Vista Lateral (de Y)", main_window)
+    action_xz = QAction(icon_xz, "Side view (+Y)", main_window)
     action_xz.triggered.connect(lambda: main_window.plotter.view_xz())
     toolbar.addAction(action_xz)
     toolbar.addSeparator()
 
-    action_bg = QAction(qta.icon('fa5s.adjust', color=color), "Alternar Cor de Fundo", main_window)
+    action_bg = QAction(qta.icon('fa5s.adjust', color=color), "Toggle Background Color", main_window)
     action_bg.triggered.connect(main_window.toggle_background)
     toolbar.addAction(action_bg)
 
-    action_screenshot = QAction(qta.icon('fa5s.camera', color=color), "Capturar Tela", main_window)
+    action_screenshot = QAction(qta.icon('fa5s.camera', color=color), "Screenshot", main_window)
     action_screenshot.triggered.connect(main_window.take_screenshot)
     toolbar.addAction(action_screenshot)
     return toolbar
 
 def setup_buckling_toolbar(main_window, results):
-    """Cria a barra de ferramentas para seleção de modos de flambagem."""
-    buckling_toolbar = QToolBar("Modos de Flambagem")
+    """Creates the toolbar for buckling mode selection."""
+    buckling_toolbar = QToolBar("Buckling Modes")
     buckling_toolbar.setMovable(False)
     buckling_toolbar.setObjectName("bucklingToolbar")
     buckling_toolbar.setStyleSheet("""
@@ -354,7 +381,7 @@ def setup_buckling_toolbar(main_window, results):
         }
     """)
 
-    header_label = QLabel("Modo de Flambagem:")
+    header_label = QLabel("Buckling Mode:")
 
     main_window.mode_combobox = QComboBox()
     main_window.mode_combobox.setFont(QFont("Consolas, Courier New", 10))
@@ -394,9 +421,9 @@ def setup_buckling_toolbar(main_window, results):
     """)
 
     icon_color = '#475569'
-    main_window.prev_mode_action = QAction(qta.icon('fa5s.chevron-left', color=icon_color), "Modo Anterior", main_window)
+    main_window.prev_mode_action = QAction(qta.icon('fa5s.chevron-left', color=icon_color), "Previous Mode", main_window)
     main_window.prev_mode_action.triggered.connect(main_window.select_previous_mode)
-    main_window.next_mode_action = QAction(qta.icon('fa5s.chevron-right', color=icon_color), "Próximo Modo", main_window)
+    main_window.next_mode_action = QAction(qta.icon('fa5s.chevron-right', color=icon_color), "Next Mode", main_window)
     main_window.next_mode_action.triggered.connect(main_window.select_next_mode)
 
     buckling_toolbar.addWidget(header_label)
@@ -404,9 +431,9 @@ def setup_buckling_toolbar(main_window, results):
     buckling_toolbar.addWidget(main_window.mode_combobox)
     buckling_toolbar.addAction(main_window.next_mode_action)
 
-    if results.autovalores is not None:
-        for i, eigenvalue in enumerate(results.autovalores):
-            item_text = f"Modo {i + 1:<3} | λ = {eigenvalue:>9.3f}"
+    if results.eigenvalues is not None:
+        for i, eigenvalue in enumerate(results.eigenvalues):
+            item_text = f"Mode {i + 1:<3} | λ = {eigenvalue:>9.3f}"
             main_window.mode_combobox.addItem(item_text)
 
     main_window.mode_combobox.currentIndexChanged.connect(main_window.on_mode_changed)

@@ -1,162 +1,173 @@
 # Third-party libraries
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
 import numpy as np
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any, Callable
 
+# Local libraries
+from SimuFrame.core.model import Structure
 
 @dataclass
 class MeshData:
-    """Armazena dados de malhas."""
-    indeformada: Optional[Any] = None
-    deformada: Optional[Any] = None
-    secoes: Optional[Any] = None
-    secoes_indices: Optional[Any] = None
+    """Stores mesh data for structure visualization."""
+    undeformed: Optional[Any] = None
+    deformed: Optional[Any] = None
+    sections: Optional[Any] = None
+    sections_idx: Optional[Any] = None
     coords: Optional[np.ndarray] = None
-    coords_deformadas: Optional[np.ndarray] = None
+    deformed_coords: Optional[np.ndarray] = None
 
 
 @dataclass
 class ResultsData:
-    """Armazena dados de resultados da análise."""
-    esforcos_int: Optional[Dict] = None
-    deslocamentos: Optional[Dict] = None
-    reacoes_nos_apoios: Optional[Dict] = None
-    autovalores: Optional[np.ndarray] = None
+    """Stores analysis results data."""
+    internal_forces: Optional[Dict] = None
+    displacements: Optional[Dict] = None
+    support_reactions: Optional[Dict] = None
+    eigenvalues: Optional[np.ndarray] = None
     convergence_data: Optional[Dict] = None
-    f_vs_d: Optional[list] = None
+    history: Optional[list] = None
     MT: Optional[np.ndarray] = None
 
 
 @dataclass
 class AnalysisConfig:
-    """Configurações da análise."""
-    tipo: str = 'Linear'
-    subdivisions: int = 1
-    num_modos: int = 0
-    modo_flambagem_atual: int = 0
+    """Configuration settings for structural analysis."""
+    analysis: str = 'Linear'
+    nonlinear_method: str = 'Newton-Raphson'
+    initial_steps: int = 10
+    max_iterations: int = 50
+    max_load_factor: float = 1.0
+    arc_type: str = 'Cylindrical'
+    psi: float = 1.0
+    subdivisions: List[int] = field(default_factory=lambda: [1])
+    num_modes: int = 0
+    buckling_mode: int = 0
 
 
 @dataclass
 class VisualizationOptions:
-    """Opções de visualização."""
-    escala: float = 1.0
-    plotar_secao: bool = True
-    visualizacao_tipo: str = 'Colormap'
-    modo_escuro: bool = False
+    """Options for result visualization."""
+    scale: float = 1.0
+    plot_section: bool = True
+    viz_style: str = 'Colormap'
+    dark_mode: bool = False
 
 
 class StateManager:
-    """Gerenciador de estado da aplicação."""
+    """Central state manager for application data and configuration."""
     def __init__(self):
-        self.estrutura = None
-        self.malhas = MeshData()
-        self.resultados = ResultsData()
+        self.structure: Structure
+        self.meshes = MeshData()
+        self.results = ResultsData()
         self.config = AnalysisConfig()
         self.viz_options = VisualizationOptions()
-        self._observers = []
-    
+        self._observers: List[Callable] = []
+
     def reset_results(self):
-        """Reseta apenas os dados de resultados, mantendo a estrutura."""
-        estrutura_cache = self.estrutura
-        self.malhas = MeshData()
-        self.resultados = ResultsData()
+        """Reset only results data while keeping the structure."""
+        cached_structure = self.structure
+        self.meshes = MeshData()
+        self.results = ResultsData()
         self.config = AnalysisConfig()
-        self.estrutura = estrutura_cache
+        self.structure = cached_structure
         self._notify_observers('results_reset')
-    
+
     def reset_all(self):
-        """Reseta todo o estado da aplicação."""
+        """Reset entire application state."""
         self.__init__()
         self._notify_observers('state_reset')
-    
+
     def set_structure(self, structure):
-        """Define a estrutura carregada."""
-        self.estrutura = structure
+        """Set the loaded structure."""
+        self.structure = structure
         self._notify_observers('structure_loaded')
-    
+
     def set_analysis_results(self, **kwargs):
-        """Atualiza os resultados da análise."""
-        # Atualizar estrutura se fornecida
-        if 'estrutura' in kwargs:
-            self.estrutura = kwargs['estrutura']
-        
-        # Atualizar malhas
-        self.malhas.indeformada = kwargs.get('malha_indeformada')
-        self.malhas.deformada = kwargs.get('malha_deformada')
-        self.malhas.coords = kwargs.get('coords')
-        self.malhas.coords_deformadas = kwargs.get('coords_deformadas')
-        
-        # Atualizar resultados
-        self.resultados.esforcos_int = kwargs.get('esforcos_int')
-        self.resultados.deslocamentos = kwargs.get('deslocamentos')
-        self.resultados.reacoes_nos_apoios = kwargs.get('reacoes_nos_apoios')
-        self.resultados.autovalores = kwargs.get('autovalores')
-        self.resultados.convergence_data = kwargs.get('convergence_data')
-        self.resultados.f_vs_d = kwargs.get('f_vs_d')
-        self.resultados.MT = kwargs.get('MT')
-        
-        # Atualizar configuração
-        if self.estrutura is not None:
-            self.config.elementos = self.estrutura.num_elements
-            self.config.num_modos = (self.resultados.autovalores.size 
-                                    if self.resultados.autovalores is not None else 0)
+        """Update analysis results from solver output."""
+        # Update structure if provided
+        if 'structure' in kwargs:
+            self.structure = kwargs['structure']
+
+        # Update meshes
+        self.meshes.undeformed = kwargs.get('undeformed_mesh')
+        self.meshes.deformed = kwargs.get('deformed_mesh')
+        self.meshes.coords = kwargs.get('coords')
+        self.meshes.deformed_coords = kwargs.get('deformed_coords')
+
+        # Update results
+        self.results.internal_forces = kwargs.get('internal_forces')
+        self.results.displacements = kwargs.get('displacements')
+        self.results.support_reactions = kwargs.get('support_reactions')
+        self.results.eigenvalues = kwargs.get('eigenvalues')
+        self.results.convergence_data = kwargs.get('convergence_data')
+        self.results.history = kwargs.get('history')
+        self.results.MT = kwargs.get('MT')
+
+        # Update configuration
+        if self.structure is not None:
+            self.config.num_modes = (
+                self.results.eigenvalues.size
+                if self.results.eigenvalues is not None else 0
+            )
 
             analise_map = {
                 'linear': 'Linear',
-                'nonlinear': 'Não Linear',
-                'buckling': 'Flambagem'
+                'nonlinear': 'Nonlinear',
+                'buckling': 'Buckling'
             }
-            self.config.tipo = analise_map.get(self.config.tipo, 'Linear')
+            self.config.analysis = analise_map.get(self.config.analysis, 'Linear')
 
         self._notify_observers('results_updated')
-    
+
     def has_structure(self) -> bool:
-        """Verifica se há uma estrutura carregada."""
-        return self.estrutura is not None
-    
+        """Check if a structure is loaded."""
+        return self.structure is not None
+
     def has_results(self) -> bool:
-        """Verifica se há resultados disponíveis."""
-        return (self.resultados.deslocamentos is not None or 
-                self.resultados.esforcos_int is not None)
-    
+        """Check if analysis results are available."""
+        return (
+            self.results.displacements is not None or
+            self.results.internal_forces is not None
+        )
+
     def is_buckling_analysis(self) -> bool:
-        """Verifica se é análise de flambagem."""
-        return self.config.tipo == 'Flambagem'
-    
-    def add_observer(self, callback):
-        """Adiciona um observador para mudanças de estado."""
+        """Check if current analysis is buckling analysis."""
+        return self.config.analysis == 'Buckling'
+
+    def add_observer(self, callback: Callable):
+        """Add an observer for state changes."""
         if callback not in self._observers:
             self._observers.append(callback)
-    
-    def remove_observer(self, callback):
-        """Remove um observador."""
+
+    def remove_observer(self, callback: Callable):
+        """Remove an observer."""
         if callback in self._observers:
             self._observers.remove(callback)
-    
+
     def _notify_observers(self, event_type: str):
-        """Notifica observadores sobre mudanças."""
+        """Notify all observers about state changes."""
         for observer in self._observers:
             try:
                 observer(event_type, self)
             except Exception as e:
-                print(f"Erro ao notificar observador: {e}")
-    
+                print(f"Error notifying observer: {e}")
+
     def get_current_buckling_mode(self) -> int:
-        """Retorna o modo de flambagem atual."""
-        return self.config.modo_flambagem_atual
-    
+        """Get the current buckling mode index."""
+        return self.config.buckling_mode
+
     def set_buckling_mode(self, mode: int):
-        """Define o modo de flambagem atual."""
-        if 0 <= mode < self.config.num_modos:
-            self.config.modo_flambagem_atual = mode
+        """Set the current buckling mode index."""
+        if 0 <= mode < self.config.num_modes:
+            self.config.buckling_mode = mode
             self._notify_observers('buckling_mode_changed')
-    
+
     def get_visualization_options(self) -> Dict[str, Any]:
-        """Retorna as opções de visualização como dicionário."""
+        """Get visualization options as a dictionary."""
         return {
-            'escala': self.viz_options.escala,
-            'plotar_secao': self.viz_options.plotar_secao,
-            'grid_secao': self.malhas.secoes,
-            'MT': self.resultados.MT,
-            'modo': self.config.modo_flambagem_atual
+            'scale': self.viz_options.scale,
+            'plot_section': self.viz_options.plot_section,
+            'sections': self.meshes.sections,
+            'buckling_mode': self.config.buckling_mode,
+            'MT': self.results.MT,
         }

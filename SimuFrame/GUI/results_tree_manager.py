@@ -1,78 +1,78 @@
+# Built-in libraries
+from typing import List, Dict, Any
+
 # Third-party libraries
 import shiboken6
 from PySide6.QtCore import Qt, QObject, Signal
-from PySide6.QtWidgets import QTreeWidgetItemIterator
+from PySide6.QtWidgets import QTreeWidgetItemIterator, QTreeWidgetItem
 
 
 class ResultsTreeManager(QObject):
-    """Gerencia a lógica de seleção da árvore de resultados."""
-    
-    # Sinal emitido quando a seleção muda
+    """Manages selection logic for the results tree widget."""
+
     selection_changed = Signal(list)
-    
+
     def __init__(self, tree_widget):
         super().__init__()
         self.tree = tree_widget
         self._processing = False
 
-    def handle_item_changed(self, item, column):
-        """Gerencia mudanças nodes itens da árvore."""
-        # Verifica se o objeto Python ainda aponta para um objeto C++ válido
+    def handle_item_changed(self, item: QTreeWidgetItem, column: int):
+        """Handle changes to tree items with safety checks for C++ object validity."""
+        # Check if Python object still points to valid C++ object
         try:
             if not shiboken6.isValid(item):
                 return
 
-            # Verifica se o item ainda pertence à árvore (se foi deletado, treeWidget é None)
+            # Check if item still belongs to tree (deleted items return None)
             if item.treeWidget() is None:
                 return
 
-            # Se o C++ deletou o pai antes do filho durante um clear cascata, parent() pode falhar
+            # If C++ deleted parent before child during cascade clear, parent() may fail
             parent = item.parent()
 
         except RuntimeError:
             return
 
-        # Ignorar pais ou itens sem data_key
+        # Ignore parent items or items without data_key
         if not item.parent() or item.data(0, Qt.ItemDataRole.UserRole) is None:
             return
-        
-        # Evitar recursão
+
+        # Prevent recursion
         if self._processing:
             return
 
-        # Sinalizar que a UI está sendo atualizada
         self._processing = True
 
         try:
             if item.checkState(column) == Qt.CheckState.Checked:
                 self.tree.blockSignals(True)
-
                 try:
                     self._handle_item_checked(item, column)
                 finally:
                     self.tree.blockSignals(False)
-            
-            # Emitir sinal com seleções atuais
+
+            # Emit signal with current selections
             selected_keys = self.get_selected_keys()
             self.selection_changed.emit(selected_keys)
-            
+
         finally:
             self._processing = False
-    
-    def _handle_item_checked(self, checked_item, column):
-        """Trata a lógica quando um item é marcado."""
+
+    def _handle_item_checked(self, checked_item: QTreeWidgetItem, column: int):
+        """Handle logic when an item is checked."""
         is_reaction_parent = self._is_reaction_item(checked_item)
 
-        # Iterar sobre todos os itens da árvore
+        # Iterate over all tree items
         iterator = QTreeWidgetItemIterator(self.tree)
         while iterator.value():
             current_item = iterator.value()
 
-            # Se não for o item marcado, desmarcar os demais
+            # Uncheck all items except the checked one
             if current_item is not checked_item:
                 is_current_reaction = self._is_reaction_item(current_item)
 
-                # Se não são ambos itens de reação, desmarcar
+                # If not both reaction items, uncheck
                 if not (is_current_reaction and is_reaction_parent):
                     if current_item.parent() and current_item.data(0, Qt.ItemDataRole.UserRole):
                         current_item.setCheckState(column, Qt.CheckState.Unchecked)
@@ -80,23 +80,23 @@ class ResultsTreeManager(QObject):
             iterator += 1
 
     @staticmethod
-    def _is_reaction_item(item):
-        """Verifica se um item pertence ao grupo de Reações de Apoio."""
+    def _is_reaction_item(item: QTreeWidgetItem) -> bool:
+        """Check if an item belongs to the Support Reactions group."""
         parent = item.parent()
-        return parent and parent.text(0) == "Reações de Apoio"
-    
-    def get_selected_keys(self):
-        """Retorna lista de data_keys dos itens selecionados."""
+        return parent is not None and parent.text(0) == "Support Reactions"
+
+    def get_selected_keys(self) -> List[Dict[str, Any]]:
+        """Return list of data_keys from selected items."""
         selected = []
         iterator = QTreeWidgetItemIterator(
             self.tree,
             QTreeWidgetItemIterator.IteratorFlag.Checked
         )
-        
+
         while iterator.value():
             item = iterator.value()
             parent = item.parent()
-            
+
             if parent:
                 data_key = item.data(0, Qt.ItemDataRole.UserRole)
                 if data_key:
@@ -104,13 +104,12 @@ class ResultsTreeManager(QObject):
                         'key': data_key,
                         'is_reaction': self._is_reaction_item(item)
                     })
-            
             iterator += 1
-        
+
         return selected
-    
+
     def clear_selection(self):
-        """Desmarca todos os itens."""
+        """Uncheck all items in the tree."""
         self._processing = True
         try:
             iterator = QTreeWidgetItemIterator(self.tree)

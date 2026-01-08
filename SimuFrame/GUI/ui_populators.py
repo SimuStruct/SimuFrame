@@ -1,45 +1,47 @@
+# Third-party libraries
 import math
-from PySide6.QtWidgets import QTreeWidgetItem, QTableWidgetItem
-from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QTreeWidgetItem, QTableWidgetItem
 
+# Local libraries
+from .widgets import create_results_tree
 from SimuFrame.utils.helpers import extract_element_data, orientation_vector
-from SimuFrame.post_processing.visualization import criar_secoes_base, generate_mesh
-from SimuFrame.GUI.widgets import create_results_tree
+from SimuFrame.post_processing.visualization import map_unique_sections, generate_mesh
 
 
 class DataTreePopulator:
-    """Popula a árvore de dados da estrutura."""
-    
+    """Populates the structure's data tree."""
+
     @staticmethod
     def populate(tree_widget, structure):
-        """Popula a árvore com dados da estrutura."""
+        """Populates the tree with structure data."""
         tree_widget.clear()
         yaml_data = structure.metadata
-        
-        # Item raiz do modelo
+
+        # Model root item
         model_item = DataTreePopulator._add_parent(
             tree_widget,
-            f"Modelo ({yaml_data.get('info', {}).get('project_name', 'N/A')})"
+            f"Model ({yaml_data.get('info', {}).get('project_name', 'N/A')})"
         )
-        
-        # Materiais
+
+        # Materials
         mats_item = DataTreePopulator._add_parent(
             model_item,
-            f"Materiais ({len(yaml_data.get('materials', {}))})"
+            f"Materials ({len(yaml_data.get('materials', {}))})"
         )
         for mat_id in yaml_data.get('materials', {}).keys():
             DataTreePopulator._add_child(mats_item, mat_id)
-        
-        # Seções
+
+        # Sections
         secs_item = DataTreePopulator._add_parent(
             model_item,
-            f"Seções ({len(yaml_data.get('section_data', {}))})"
+            f"Sections ({len(yaml_data.get('section_data', {}))})"
         )
         for sec_id in yaml_data.get('section_data', {}).keys():
             DataTreePopulator._add_child(secs_item, sec_id)
-        
-        # Carregamentos
+
+        # Loads
         loads_item = DataTreePopulator._add_parent(model_item, "Loads")
         DataTreePopulator._add_child(
             loads_item,
@@ -49,12 +51,12 @@ class DataTreePopulator:
             loads_item,
             f"Distributed Loads ({len(yaml_data.get('distributed_loads', []))})"
         )
-        
+
         tree_widget.expandAll()
-    
+
     @staticmethod
     def _add_parent(parent_widget, name):
-        """Adiciona um item pai à árvore."""
+        """Adds a parent item to the tree."""
         item = QTreeWidgetItem(parent_widget, [name])
         item.setExpanded(True)
         flags = item.flags()
@@ -65,10 +67,10 @@ class DataTreePopulator:
         font.setBold(True)
         item.setFont(0, font)
         return item
-    
+
     @staticmethod
     def _add_child(parent_item, name, data_key=None):
-        """Adiciona um item filho à árvore."""
+        """Adds a child item to the tree."""
         item = QTreeWidgetItem(parent_item, [name])
         if data_key:
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -82,15 +84,15 @@ class DataTreePopulator:
 
 
 class TablesPopulator:
-    """Popula as tabelas de dados."""
-    
+    """Populates data tables."""
+
     @staticmethod
     def populate_nodes_table(table, structure):
-        """Popula a tabela de nós."""
+        """Populates the nodes table."""
         yaml_data = structure.metadata
         nodes = yaml_data.get('nodes', [])
 
-        # Mapeamento dos graus de liberdade para a string correspondente
+        # Mapping degrees of freedom to corresponding boundary conditions
         dof_map = {
             0: 'UX', 1: 'UY', 2: 'UZ',
             3: 'RX', 4: 'RY', 5: 'RZ'
@@ -101,15 +103,15 @@ class TablesPopulator:
             row = table.rowCount()
             table.insertRow(row)
 
-            # Índices das condições de contorno
+            # Boundary condition indices
             bc_idx = structure.nodes[node_id].boundary_conditions
 
-            # Nomear as condições de contorno
+            # Boundary conditions labels
             labels = [dof_map[i] for i in sorted(bc_idx) if i in dof_map]
 
-            # Adicionar as condições de contorno às restrições do nó
+            # Add boundary conditions to node restrictions
             if len(labels) == 6:
-                restrictions = 'Encastre'
+                restrictions = 'Fixed'
             elif len(labels) == 3 and labels == ['UX', 'UY', 'UZ']:
                 restrictions = 'Pinned'
             else:
@@ -120,67 +122,67 @@ class TablesPopulator:
             table.setItem(row, 2, QTableWidgetItem(f"{coords[1]:.3f}"))
             table.setItem(row, 3, QTableWidgetItem(f"{coords[2]:.3f}"))
             table.setItem(row, 4, QTableWidgetItem(restrictions))
-    
+
     @staticmethod
     def populate_elements_table(table, yaml_data):
-        """Popula a tabela de elements."""
+        """Populates the elements table."""
         elements = yaml_data.get('elements', [])
         sections = yaml_data.get('section_data', {})
         nodes = yaml_data.get('nodes', [])
-        
+
         table.setRowCount(0)
         for elem_id, element in enumerate(elements):
             row = table.rowCount()
             table.insertRow(row)
-            
+
             connec = element.get('connec', [])
             section_id = element.get('section_id', 'N/A')
             section = sections.get(section_id, {})
             material_id = section.get('material_id', 'N/A')
-            
-            # Calcular comprimento
+
+            # Calculate length
             length = 0.0
             if len(connec) >= 2 and connec[0] < len(nodes) and connec[1] < len(nodes):
                 node_i, node_j = nodes[connec[0]], nodes[connec[1]]
                 length = math.sqrt(sum((ni - nj) ** 2 for ni, nj in zip(node_i, node_j)))
-            
+
             table.setItem(row, 0, QTableWidgetItem(str(elem_id)))
             table.setItem(row, 1, QTableWidgetItem(str(connec[0]) if connec else '-'))
             table.setItem(row, 2, QTableWidgetItem(str(connec[1]) if len(connec) > 1 else '-'))
             table.setItem(row, 3, QTableWidgetItem(section_id))
             table.setItem(row, 4, QTableWidgetItem(material_id))
             table.setItem(row, 5, QTableWidgetItem(f"{length:.3f}"))
-    
+
     @staticmethod
     def populate_sections_tree(tree, structure):
-        """Popula a árvore de seções."""
+        """Populates the sections tree."""
         tree.clear()
-        
+
         if not structure or not hasattr(structure, 'elements'):
             return
-        
-        # Coletar seções únicas
+
+        # Collect unique sections
         unique_sections = {}
         for element in structure.elements.values():
             sec_obj = element.section
             if sec_obj and id(sec_obj) not in unique_sections:
                 sec_name = getattr(sec_obj, 'name', 'N/A')
                 unique_sections[id(sec_obj)] = (sec_name, sec_obj)
-        
-        # Adicionar cada seção à árvore
+
+        # Add each section to the tree
         for sec_name, section in unique_sections.values():
             item = QTreeWidgetItem(tree, [sec_name])
             font = QFont()
             font.setBold(True)
             item.setFont(0, font)
             item.setExpanded(True)
-            
-            # Adicionar propriedades
+
+            # Add properties
             TablesPopulator._add_section_properties(item, section)
-    
+
     @staticmethod
     def _add_section_properties(parent_item, section):
-        """Adiciona propriedades de uma seção."""
+        """Adds section properties."""
         properties = [
             ('h', 'Depth', 'h', 1e2, 'cm'),
             ('b', 'Width', 'b', 1e2, 'cm'),
@@ -194,7 +196,7 @@ class TablesPopulator:
             ('Iz', 'Area moment of inertia about z-axis', 'Iz', 1e8, 'cm⁴'),
             ('It', 'Torsional constant (t)', 'It', 1e8, 'cm⁴')
         ]
-        
+
         for attr, desc, sym, scale, unit in properties:
             if hasattr(section, attr):
                 value = getattr(section, attr)
@@ -203,44 +205,44 @@ class TablesPopulator:
 
 
 class ResultsTreePopulator:
-    """Popula a árvore de resultados."""
-    
+    """Populates the results tree."""
+
     @staticmethod
-    def populate(tree_widget, main_window):
-        """Recria a árvore de resultados."""
+    def populate(tree_widget, main_window, is_buckling):
+        """Recreates the results tree."""
         tree_widget.clear()
-        
-        # Criar nova árvore usando a função auxiliar
-        new_tree = create_results_tree(main_window)
-        
-        # Copiar itens para a árvore existente
+
+        # Create new tree using helper function
+        new_tree = create_results_tree(main_window, is_buckling)
+
+        # Copy items to existing tree
         iterator = new_tree.invisibleRootItem()
         for i in range(iterator.childCount()):
             item = iterator.child(i).clone()
             tree_widget.addTopLevelItem(item)
-        
+
         return tree_widget
 
 
 class MeshLoader:
-    """Carrega e cria malhas da estrutura."""
-    
+    """Loads and creates structure meshes."""
+
     @staticmethod
     def load_undeformed_mesh(structure, config):
-        """Carrega a malha indeformada."""
-        structure.is_buckling = (config.tipo == 'buckling')
+        """Loads the undeformed mesh."""
+        structure.is_buckling = (config.analysis == 'buckling')
 
         try:
             coords, initial_coords, *_ = extract_element_data(structure)
             ref_vector = orientation_vector(structure, coords, initial_coords)
-            secoes, secoes_indices = criar_secoes_base(structure)
-            
+            secoes, secoes_indices = map_unique_sections(structure)
+
             malha_indeformada = generate_mesh(
                 structure, secoes, secoes_indices,
                 initial_coords, ref_vector,
-                geometry='undeformed'
+                geometry_type='undeformed'
             )
-            
+
             return malha_indeformada, secoes, secoes_indices
         except Exception as e:
             print(f"Error loading undeformed mesh: {e}")
