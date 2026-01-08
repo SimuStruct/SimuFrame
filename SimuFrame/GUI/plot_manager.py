@@ -1,5 +1,5 @@
 # Built-in libraries
-from typing import Dict
+from typing import Dict, Optional, List
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 
@@ -7,90 +7,89 @@ from contextlib import contextmanager
 import pyvista as pv
 
 # Local libraries
-from SimuFrame.post_processing.visualization import plot_structure, plotar_reacoes
-from SimuFrame.post_processing.forces_visualization import plotar_esforcos
-from SimuFrame.post_processing.displacement_visualization import plotar_deslocamentos
+from SimuFrame.post_processing.visualization import plot_structure
+from SimuFrame.post_processing.forces_visualization import plot_internal_forces
+from SimuFrame.post_processing.displacement_visualization import plot_displacements
+from SimuFrame.post_processing.support_visualization import plot_reactions
 
 
 class PlotCommand(ABC):
-    """Comando abstrato para plotagem."""
+    """Abstract command for plotting operations."""
 
     @abstractmethod
     def execute(self, plotter, state, **kwargs):
-        """Executa o comando de plotagem."""
+        """Execute the plotting command."""
         pass
 
 
 class PlotDisplacementCommand(PlotCommand):
-    """Comando para plotar deslocamentos."""
+    """Command for plotting displacements."""
 
-    def __init__(self, componente: str):
-        self.componente = componente
+    def __init__(self, component: str):
+        self.component = component
 
     def execute(self, plotter, state, **kwargs):
-        """Plota deslocamentos."""
-        if state.resultados.deslocamentos is None:
+        """Plot displacement results."""
+        if state.results.displacements is None:
             return
 
         viz_options = state.get_visualization_options()
         viz_options.update(kwargs)
-        viz_options['componente'] = self.componente
+        viz_options['component'] = self.component
 
-        # Delegar para a função especializada
-        plotar_deslocamentos(
-            state.estrutura,
-            state.malhas.deformada,
-            state.malhas.coords_deformadas,
-            state.resultados.deslocamentos,
+        plot_displacements(
+            state.structure,
+            state.meshes.deformed,
+            state.meshes.deformed_coords,
+            state.results.displacements,
             plotter,
             **viz_options
         )
 
 
 class PlotForceCommand(PlotCommand):
-    """Comando para plotar esforços internos."""
+    """Command for plotting internal forces."""
 
     def __init__(self, force_type: str):
         self.force_type = force_type
 
     def execute(self, plotter, state, **kwargs):
-        """Plota esforços internos."""
-        if state.resultados.esforcos_int is None:
+        """Plot internal force results."""
+        if state.results.internal_forces is None:
             return
 
         viz_options = state.get_visualization_options()
         viz_options.update(kwargs)
         viz_options['force'] = self.force_type
 
-        # Delegar para a função especializada
-        plotar_esforcos(
-            state.estrutura,
-            state.malhas.deformada,
-            state.malhas.coords,
-            state.resultados.esforcos_int,
+        plot_internal_forces(
+            state.structure,
+            state.meshes.deformed,
+            state.meshes.coords,
+            state.results.internal_forces,
             plotter,
             **viz_options
         )
 
 
 class PlotReactionCommand(PlotCommand):
-    """Comando para plotar reações de apoio."""
+    """Command for plotting support reactions."""
 
-    def execute(self, plotter, state, reacoes_a_plotar=None, **kwargs):
-        """Plota reações de apoio."""
-        if state.resultados.reacoes_nos_apoios is None:
+    def execute(self, plotter, state, reactions_to_plot: Optional[List[str]] = None, **kwargs):
+        """Plot support reaction results."""
+        if state.results.support_reactions is None:
             return
 
-        # Delegar para a função especializada
-        plotar_reacoes(
+        plot_reactions(
             plotter,
-            state.resultados.reacoes_nos_apoios,
-            reacoes_a_plotar=reacoes_a_plotar or []
+            state.results.support_reactions,
+            components=reactions_to_plot or []
         )
 
 
 class PlotManager:
-    """Gerenciador central de plotagem."""
+    """Central manager for all plotting operations."""
+
     def __init__(self, plotter, state_manager):
         self.plotter = plotter
         self.state = state_manager
@@ -99,25 +98,21 @@ class PlotManager:
 
     @contextmanager
     def render_lock(self):
-        """Bloqueia a renderização do VTK durante operações em lote."""
-        # Acesso de baixo nível à janela de renderização do VTK
+        """Lock VTK rendering during batch operations to improve performance."""
         render_window = self.plotter.ren_win
-
-        # Desabilita atualizações (SwapBuffers off impede que o buffer incompleto vá para a tela)
         render_window.SetSwapBuffers(0)
 
         try:
             yield
         finally:
-            # Reabilita e força um único render final
             render_window.SetSwapBuffers(1)
             self.plotter.render()
 
     @staticmethod
     def _create_commands() -> Dict[str, PlotCommand]:
-        """Cria o dicionário de comandos de plotagem."""
+        """Create dictionary of available plotting commands."""
         return {
-            # Deslocamentos globais
+            # Global displacements
             'u': PlotDisplacementCommand('u'),
             'ux': PlotDisplacementCommand('x'),
             'uy': PlotDisplacementCommand('y'),
@@ -126,7 +121,7 @@ class PlotManager:
             'θy': PlotDisplacementCommand('θy'),
             'θz': PlotDisplacementCommand('θz'),
 
-            # Esforços internos
+            # Internal forces
             'fx': PlotForceCommand('Fx'),
             'fy': PlotForceCommand('Fy'),
             'fz': PlotForceCommand('Fz'),
@@ -134,25 +129,27 @@ class PlotManager:
             'my': PlotForceCommand('My'),
             'mz': PlotForceCommand('Mz'),
 
-            # Reações de apoio
-            'reacoes_apoio': PlotReactionCommand()
+            # Support reactions
+            'support_reactions': PlotReactionCommand()
         }
 
     def clear_result_actors(self):
-        """Remove apenas atores de resultados."""
+        """Remove only result-related actors from the scene."""
         actors_to_remove = [
-            # Diagramas e rótulos de esforços
-            'diagrama_esforcos',
-            'rotulos_esforcos',
-            'legendas_esforcos',
+            # Force diagrams and labels
+            'force_diagram',
+            'force_labels',
+            'force_legends',
 
-            # Reações
-            'reacoes_forcas',
-            'reacoes_momentos',
+            # Reactions
+            'reaction_forces',
+            'reaction_forces_labels',
+            'reaction_moments',
+            'reaction_moments_labels',
 
-            # Marcadores de deslocamentos
-            'esfera_max_deslocamento',
-            'rotulo_max_deslocamento'
+            # Displacement markers
+            'max_displacement_sphere',
+            'max_displacement_label'
         ]
 
         for name in actors_to_remove:
@@ -162,48 +159,41 @@ class PlotManager:
                 pass
 
     def plot_result(self, result_key: str, **options):
-        """Plota um resultado específico."""
+        """Plot a specific result using the command pattern."""
         if result_key not in self.commands:
-            print(f"[PlotManager] Comando '{result_key}' não encontrado.")
+            print(f"[PlotManager] Key '{result_key}' not found.")
             return
 
         command = self.commands[result_key]
 
         with self.render_lock():
-            # Limpar resultados anteriores
             self.clear_result_actors()
-
-            # Executar novo plot
             command.execute(self.plotter, self.state, **options)
 
     def plot_base_structure(self):
-        """Plota apenas a estrutura base (indeformada)."""
+        """Plot only the base undeformed structure."""
         if not self.state.has_structure():
             return
 
-        # Limpar tudo
         self.plotter.clear_actors()
-
-        # Adicionar eixos e orientação
         self.setup_initial_view()
 
-        # Plotar apenas estrutura indeformada
-        if self.state.malhas.indeformada:
+        if self.state.meshes.undeformed:
             plot_structure(
                 self.plotter,
-                self.state.estrutura,
-                self.state.malhas.indeformada,
-                transparencia=0.2,
-                plotar_secao=self.state.viz_options.plotar_secao,
-                plotar_cargas=False,
-                plotar_nos=False,
-                name='estrutura_indeformada'
+                self.state.structure,
+                self.state.meshes.undeformed,
+                opacity=0.2,
+                plot_section=self.state.viz_options.plot_section,
+                plot_loads=False,
+                plot_nodes=False,
+                name='undeformed_structure'
             )
 
     def update_section_visibility(self, visible: bool):
-        """Atualiza a visibilidade das seções da estrutura indeformada."""
+        """Update visibility of cross-sections on the undeformed structure."""
         try:
-            actor = self.plotter.actors.get('estrutura_indeformada_secoes')
+            actor = self.plotter.actors.get('undeformed_structure_sections')
             if actor:
                 actor.visibility = visible
                 self.plotter.render()
@@ -211,7 +201,7 @@ class PlotManager:
             pass
 
     def toggle_background(self):
-        """Alterna entre fundo claro e escuro."""
+        """Toggle between light and dark background."""
         if self.dark_mode:
             self.plotter.set_background('darkgray', top='white')
             self.dark_mode = False
@@ -220,14 +210,14 @@ class PlotManager:
             self.dark_mode = True
 
     def take_screenshot(self, filepath: str):
-        """Salva uma captura de tela."""
+        """Save a screenshot of the current view."""
         self.plotter.screenshot(filepath)
 
     def setup_initial_view(self):
-        """Configura a visualização inicial."""
+        """Configure the initial view with axes and orientation widget."""
         self.plotter.add_axes()
         self.plotter.add_orientation_widget(pv.AxesActor())
 
     def reset_camera(self):
-        """Reseta a câmera para visualização padrão."""
+        """Reset camera to default view."""
         self.plotter.reset_camera()
