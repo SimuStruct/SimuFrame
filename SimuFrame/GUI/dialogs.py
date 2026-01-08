@@ -1,393 +1,316 @@
+# Built-in libraries
+import dataclasses
+from typing import List, Dict, Tuple, Optional, cast
+
 # Third-party libraries
 import numpy as np
-import pyqtgraph as pg
+import numpy.typing as npt
 import matplotlib
+matplotlib.use('QtAgg')
+import pyqtgraph as pg
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QSpinBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QSpinBox, QDoubleSpinBox,
     QTableWidget, QTableWidgetItem, QWidget, QLabel, QDialogButtonBox,
     QPushButton, QHeaderView, QGroupBox, QComboBox, QFormLayout,
-    QListWidget, QSplitter, QFileDialog,
+    QListWidget, QSplitter, QFileDialog, QAbstractItemView
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
-from sklearn.metrics import r2_score
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from SimuFrame.GUI.interactive.InteractiveCursor import InteractiveCursor
-matplotlib.use('QtAgg')
+
+# Local libraries
+from SimuFrame.core.model import Structure
+from .interactive.InteractiveCursor import InteractiveCursor
 
 
 class ConvergenceDialog(QDialog):
-    """
-    Diálogo para visualizar os dados de convergência do método Arc-Length.
-    """
-    def __init__(self, convergence_data, parent=None):
-        """
-        Args:
-            convergence_data (dict): Dicionário contendo os dados de convergência:
-                - 'increments': lista de incrementos
-                - 'lambda_history': histórico de fatores de carga
-                - 'max_displ_history': histórico de deslocamentos máximos
-                - 'iteration_details': detalhes de cada iteração
-        """
+    """Dialog to visualize the convergence data of both the Arc-Length and Newton-Raphson methods."""
+    def __init__(self, convergence_data: dict, parent=None):
         super().__init__(parent)
-        self.convergence_data = convergence_data
-        self.setWindowTitle("Gráficos de Cálculo - Método Arc-Length")
+
+        # Convert object to dict to maintain compatibility with .get() calls
+        if not isinstance(convergence_data, dict):
+            try:
+                # If it's a @dataclass
+                self.convergence_data = dataclasses.asdict(convergence_data)
+            except TypeError:
+                # If it's a standard class
+                self.convergence_data = vars(convergence_data)
+        else:
+            self.convergence_data = convergence_data
+
+        self.setWindowTitle("Convergence Overview")
         self.resize(1200, 800)
-        
         self.setup_ui()
         self.populate_data()
-    
+
     def setup_ui(self):
-        """Configura a interface do usuário."""
+        """Set up the user interface."""
         layout = QVBoxLayout(self)
-        
-        # Criar o TabWidget principal
+
+        # Create main tab widget
         self.tab_widget = QTabWidget()
-        
-        # Aba 1: Main (Informações gerais)
-        self.main_tab = self.create_main_tab()
-        self.tab_widget.addTab(self.main_tab, "Main")
-        
-        # Aba 2: Table (Tabela de incrementos)
-        self.table_tab = self.create_table_tab()
-        self.tab_widget.addTab(self.table_tab, "Tabela")
-        
-        # Aba 3: Diagram (Diagrama carga x deslocamento)
-        self.diagram_tab = self.create_diagram_tab()
-        self.tab_widget.addTab(self.diagram_tab, "Diagrama")
-        
-        # Aba 4: Convergence Table (Tabela de convergência detalhada)
-        self.convergence_tab = self.create_convergence_tab()
-        self.tab_widget.addTab(self.convergence_tab, "Tabela de Convergência")
-        
+
+        # Tab 1: Main (General information)
+        self.tab_widget.addTab(self._create_main_tab(), "Overview")
+
+        # Tab 2: Table (Table of increments)
+        self.tab_widget.addTab(self._create_table_tab(), "Increments")
+
+        # Tab 3: Diagram (Load factor x displacement graph)
+        self.tab_widget.addTab(self._create_diagram_tab(), "Diagram")
+
+        # Tab 4: Convergence Table (Detailed convergence table)
+        self.tab_widget.addTab(self._create_convergence_tab(), "Convergence details")
+
         layout.addWidget(self.tab_widget)
-        
-        # Botões de ação
+
+        # Action buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
-        export_btn = QPushButton("Exportar...")
-        close_btn = QPushButton("Fechar")
+
+        export_btn = QPushButton("Export...")
+        close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        
+
         button_layout.addWidget(export_btn)
         button_layout.addWidget(close_btn)
-        
         layout.addLayout(button_layout)
-    
-    def create_main_tab(self):
-        """Cria a aba Main com informações gerais."""
+
+    def _create_main_tab(self):
+        """Creates the Overview tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Título
-        title = QLabel("Análise Não Linear - Método Arc-Length")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title.setFont(title_font)
+
+        # Title
+        title = QLabel("Nonlinear Analysis")
+        title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         layout.addWidget(title)
-        
-        # Informações gerais
-        info_layout = QVBoxLayout()
-        
+
         self.info_labels = {}
         info_keys = [
-            ("Tipo de Análise:", "analysis_type"),
-            ("Método:", "method"),
-            ("Total de Incrementos:", "total_increments"),
-            ("Incrementos Aceitos:", "accepted_increments"),
-            ("Incrementos Rejeitados:", "rejected_increments"),
-            ("Fator de Carga Final (λ):", "final_lambda"),
-            ("Deslocamento Máximo:", "max_displacement"),
+            ("Analysis:", "analysis_type"),
+            ("Method:", "method"),
+            ("Total Increments:", "total_increments"),
+            ("Accepted Increments:", "accepted_increments"),
+            ("Rejected Increments:", "rejected_increments"),
+            ("Final Load Factor (λ):", "final_lambda"),
+            ("Maximum Displacement:", "max_displacement"),
             ("Status:", "status")
         ]
-        
+
         for label_text, key in info_keys:
             h_layout = QHBoxLayout()
-            label = QLabel(label_text)
-            label.setMinimumWidth(200)
-            value_label = QLabel("--")
-            value_label.setStyleSheet("font-weight: bold;")
-            
-            h_layout.addWidget(label)
-            h_layout.addWidget(value_label)
+            lbl = QLabel(label_text)
+            lbl.setMinimumWidth(200)
+            value_lbl = QLabel("--")
+            value_lbl.setStyleSheet("font-weight: bold;")
+
+            h_layout.addWidget(lbl)
+            h_layout.addWidget(value_lbl)
             h_layout.addStretch()
-            
-            info_layout.addLayout(h_layout)
-            self.info_labels[key] = value_label
-        
-        layout.addLayout(info_layout)
+            layout.addLayout(h_layout)
+            self.info_labels[key] = value_lbl
+
         layout.addStretch()
-        
         return widget
-    
-    def create_table_tab(self):
-        """Cria a aba Table com tabela de incrementos."""
+
+    def _create_table_tab(self):
+        """Creates the Increments table tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Descrição
-        desc_label = QLabel("Resumo dos Incrementos de Carga")
-        desc_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(desc_label)
-        
-        # Tabela
+
+        # Description
+        layout.addWidget(QLabel("<b>Load Increments Summary</b>"))
+
+        # Table
         self.increment_table = QTableWidget()
-        headers = ["Inc.", "λ", "Δλ", "Δl", "Iterações", "||R|| Final", 
-                   "Deslocamento Máx.", "Status", "Observações"]
-        self.increment_table.setColumnCount(len(headers))
-        self.increment_table.setHorizontalHeaderLabels(headers)
-        self.increment_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.increment_table.horizontalHeader().setStretchLastSection(True)
-        self.increment_table.setAlternatingRowColors(True)
-        
+        headers = ["Step", "λ", "Δλ", "Δs", "Iter.",
+                   "||R|| (final)", "||d|| (final)", "||Π|| (final)",
+                   "||A|| (final)", "||R + A|| (final)"
+                   "Max Displ.", "Status", "Notes"]
+        self._setup_table(self.increment_table, headers)
         layout.addWidget(self.increment_table)
-        
         return widget
-    
-    def create_diagram_tab(self):
-        """Cria a aba Diagram com o gráfico carga x deslocamento."""
+
+    def _create_diagram_tab(self):
+        """Creates the load factor x displacement diagram."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Descrição
-        desc_label = QLabel("Caminho de Equilíbrio - Fator de Carga × Deslocamento Máximo")
-        desc_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(desc_label)
-        
-        # Gráfico
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('w')
-        self.plot_widget.setLabel('left', "Fator de Carga (λ)", color='k', size='12pt')
-        self.plot_widget.setLabel('bottom', "Deslocamento Máximo (m)", color='k', size='12pt')
+
+        # Description
+        layout.addWidget(QLabel("<b>Equilibrium Path - Load Factor × Displacement (norm)</b>"))
+
+        # Graph
+        self.plot_widget = pg.PlotWidget(background='w')
+        self.plot_widget.setLabel('left', "Load Factor (λ)", color='k')
+        self.plot_widget.setLabel('bottom', "Maximum Displacement (m)", color='k')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_widget.addLegend()
-        
-        # Configurar cores para fundo branco
-        self.plot_widget.getAxis('left').setPen(pg.mkPen(color='k', width=2))
-        self.plot_widget.getAxis('bottom').setPen(pg.mkPen(color='k', width=2))
-        self.plot_widget.getAxis('left').setTextPen(pg.mkPen(color='k'))
-        self.plot_widget.getAxis('bottom').setTextPen(pg.mkPen(color='k'))
-        
+
+        # Style axes
+        for axis in ['left', 'bottom']:
+                    self.plot_widget.getAxis(axis).setPen(pg.mkPen(color='k', width=1))
+                    self.plot_widget.getAxis(axis).setTextPen(pg.mkPen(color='k'))
+
         layout.addWidget(self.plot_widget)
-        
         return widget
-    
-    def create_convergence_tab(self):
-        """Cria a aba Convergence Table com detalhes de cada iteração."""
+
+    def _create_convergence_tab(self):
+        """Creates the detailed convergence table tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Descrição
-        desc_label = QLabel("Detalhes de Convergência por Incremento e Iteração")
-        desc_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(desc_label)
-        
-        # Tabela detalhada
+
+        # Description
+        layout.addWidget(QLabel("<b>Convergence Details per Iteration</b>"))
+
+        # Detailed convergence table
         self.convergence_table = QTableWidget()
-        headers = ["Inc.", "Iter.", "λ", "Δλ", "δλ", "||R||", "||δd||", 
-                   "Critério Força", "Critério Deslocamento", "Critério Energia", "Convergiu"]
-        self.convergence_table.setColumnCount(len(headers))
-        self.convergence_table.setHorizontalHeaderLabels(headers)
-        self.convergence_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.convergence_table.setAlternatingRowColors(True)
-        
+        headers = ["Step", "Iter.", "λ", "Δλ", "δλ", "||R||", "||d||", "||Π||",
+                   "||δd||", "||A||", "||R + A||",
+                   "Arc-Length Crit.", "Force Crit.", "Displacement Crit.", "Energy Crit.", "Converged"]
+        self._setup_table(self.convergence_table, headers)
         layout.addWidget(self.convergence_table)
-        
         return widget
-    
+
+    def _setup_table(self, table: QTableWidget, headers: List[str]):
+        """Helper to configure table styling."""
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
+        table.setAlternatingRowColors(True)
+
     def populate_data(self):
-        """Preenche todas as abas com os dados de convergência."""
+        """Populate all tabs with the corresponding data."""
         if not self.convergence_data:
             return
-        
-        # Popular aba Main
-        self.populate_main_tab()
-        
-        # Popular aba Table
-        self.populate_table_tab()
-        
-        # Popular aba Diagram
-        self.populate_diagram_tab()
-        
-        # Popular aba Convergence Table
-        self.populate_convergence_tab()
-    
-    def populate_main_tab(self):
-        """Preenche a aba Main com informações gerais."""
+
+        # Initial data
         data = self.convergence_data
-        
-        self.info_labels['analysis_type'].setText("Não Linear Geométrica (NLG)")
-        self.info_labels['method'].setText("Arc-Length (Crisfield - Controle Esférico)")
+        method = data.get('method', "Newton-Raphson (Load Control)")
+        is_newton = 'newton' in method.lower()
+
+        # 1. Overview Tab
+        self.info_labels['analysis_type'].setText(str(data.get('analysis', "Linear Elastic")))
+        self.info_labels['method'].setText(str(method))
         self.info_labels['total_increments'].setText(str(data.get('total_increments', 0)))
         self.info_labels['accepted_increments'].setText(str(data.get('accepted_increments', 0)))
         self.info_labels['rejected_increments'].setText(str(data.get('rejected_increments', 0)))
-        
-        final_lambda = data.get('final_lambda', 0.0)
-        self.info_labels['final_lambda'].setText(f"{final_lambda:.3f}")
-        
-        max_displ = data.get('max_displacement', 0.0)
-        self.info_labels['max_displacement'].setText(f"{max_displ:.3f} m")
-        
-        status = "✓ Convergiu" if data.get('converged', False) else "✗ Não Convergiu"
-        status_color = "color: green;" if data.get('converged', False) else "color: red;"
-        self.info_labels['status'].setText(status)
-        self.info_labels['status'].setStyleSheet(f"font-weight: bold; {status_color}")
-    
-    def populate_table_tab(self):
-        """Preenche a tabela de incrementos."""
-        increments = self.convergence_data.get('increments', [])
+        self.info_labels['final_lambda'].setText(f"{data.get('final_lambda', 0.0):.3f}")
+        self.info_labels['max_displacement'].setText(f"{data.get('max_displacement', 0.0):.3f} m")
+
+        converged = data.get('converged', False)
+        status_text = "✓ Converged" if converged else "✗ Failed"
+        status_color = "green" if converged else "red"
+        self.info_labels['status'].setText(status_text)
+        self.info_labels['status'].setStyleSheet(f"font-weight: bold; color: {status_color};")
+
+        # 2. Increments Table
+        increments = data.get('increments', [])
         self.increment_table.setRowCount(len(increments))
-        
-        for row, inc_data in enumerate(increments):
-            # Incremento
-            self.increment_table.setItem(row, 0, 
-                QTableWidgetItem(str(inc_data.get('increment', ''))))
-            
-            # Lambda
-            lambda_val = inc_data.get('lambda', 0.0)
-            self.increment_table.setItem(row, 1, 
-                QTableWidgetItem(f"{lambda_val:.6f}"))
-            
-            # Delta Lambda
-            delta_lambda = inc_data.get('delta_lambda', 0.0)
-            self.increment_table.setItem(row, 2, 
-                QTableWidgetItem(f"{delta_lambda:.6e}"))
-            
-            # Arc-length
-            arc_length = inc_data.get('arc_length', 0.0)
-            self.increment_table.setItem(row, 3, 
-                QTableWidgetItem(f"{arc_length:.6e}"))
-            
-            # Iterações
-            iterations = inc_data.get('iterations', 0)
-            self.increment_table.setItem(row, 4, 
-                QTableWidgetItem(str(iterations)))
-            
-            # Norma do resíduo final
-            norm_R = inc_data.get('norm_R', 0.0)
-            self.increment_table.setItem(row, 5, 
-                QTableWidgetItem(f"{norm_R:.2e}"))
-            
-            # Deslocamento máximo
-            max_displ = inc_data.get('max_displacement', 0.0)
-            self.increment_table.setItem(row, 6, 
-                QTableWidgetItem(f"{max_displ:.6e}"))
-            
-            # Status
-            status = "Aceito" if inc_data.get('accepted', True) else "Rejeitado"
-            status_item = QTableWidgetItem(status)
-            if not inc_data.get('accepted', True):
-                status_item.setForeground(Qt.GlobalColor.red)
-            self.increment_table.setItem(row, 7, status_item)
-            
-            # Observações
-            obs = inc_data.get('observations', '')
-            self.increment_table.setItem(row, 8, QTableWidgetItem(obs))
-    
-    def populate_diagram_tab(self):
-        """Preenche o diagrama carga x deslocamento."""
-        lambda_history = self.convergence_data.get('lambda_history', [])
-        max_displ_history = self.convergence_data.get('max_displ_history', [])
-        
-        if not lambda_history or not max_displ_history:
-            return
-        
-        # Plotar curva principal
-        pen = pg.mkPen(color=(0, 150, 255), width=3)
-        self.plot_widget.plot(max_displ_history, lambda_history, 
-                            pen=pen, symbol='o', symbolSize=8, 
-                            symbolBrush=(0, 150, 255), 
-                            name='Caminho de Equilíbrio')
-        
-        # Adicionar pontos rejeitados se houver
-        rejected_data = self.convergence_data.get('rejected_points', {'displ': [], 'lambda': []})
-        if rejected_data['displ']:
-            self.plot_widget.plot(rejected_data['displ'], rejected_data['lambda'],
-                                pen=None, symbol='x', symbolSize=10,
-                                symbolBrush='r', symbolPen='r',
-                                name='Incrementos Rejeitados')
-    
-    def populate_convergence_tab(self):
-        """Preenche a tabela de convergência detalhada."""
-        iteration_details = self.convergence_data.get('iteration_details', [])
-        self.convergence_table.setRowCount(len(iteration_details))
-        
-        for row, iter_data in enumerate(iteration_details):
-            # Incremento
-            self.convergence_table.setItem(row, 0, 
-                QTableWidgetItem(str(iter_data.get('increment', ''))))
-            
-            # Iteração
-            self.convergence_table.setItem(row, 1, 
-                QTableWidgetItem(str(iter_data.get('iteration', ''))))
-            
-            # Lambda
-            lambda_val = iter_data.get('lambda', 0.0)
-            self.convergence_table.setItem(row, 2, 
-                QTableWidgetItem(f"{lambda_val:.6f}"))
-            
-            # Delta Lambda (total do incremento)
-            delta_lambda = iter_data.get('delta_lambda', 0.0)
-            self.convergence_table.setItem(row, 3, 
-                QTableWidgetItem(f"{delta_lambda:.6e}"))
-            
-            # delta lambda (correção da iteração)
-            delta_lambda_iter = iter_data.get('delta_lambda_iter', 0.0)
-            self.convergence_table.setItem(row, 4, 
-                QTableWidgetItem(f"{delta_lambda_iter:.6e}"))
-            
-            # Norma do resíduo
-            norm_R = iter_data.get('norm_R', 0.0)
-            self.convergence_table.setItem(row, 5, 
-                QTableWidgetItem(f"{norm_R:.2e}"))
-            
-            # Norma do incremento de deslocamento
-            norm_delta_d = iter_data.get('norm_delta_d', 0.0)
-            self.convergence_table.setItem(row, 6, 
-                QTableWidgetItem(f"{norm_delta_d:.2e}"))
-            
-            # Critério de força
-            force_criterion = iter_data.get('force_criterion', False)
-            force_item = QTableWidgetItem("✓" if force_criterion else "✗")
-            force_item.setForeground(Qt.GlobalColor.green if force_criterion else Qt.GlobalColor.red)
-            force_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.convergence_table.setItem(row, 7, force_item)
-            
-            # Critério de deslocamento
-            displ_criterion = iter_data.get('displ_criterion', False)
-            displ_item = QTableWidgetItem("✓" if displ_criterion else "✗")
-            displ_item.setForeground(Qt.GlobalColor.green if displ_criterion else Qt.GlobalColor.red)
-            displ_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.convergence_table.setItem(row, 8, displ_item)
-            
-            # Critério de energia
-            energy_criterion = iter_data.get('energy_criterion', False)
-            energy_item = QTableWidgetItem("✓" if energy_criterion else "✗")
-            energy_item.setForeground(Qt.GlobalColor.green if energy_criterion else Qt.GlobalColor.red)
-            energy_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.convergence_table.setItem(row, 9, energy_item)
 
-            # Convergiu?
-            converged = iter_data.get('converged', False)
-            conv_item = QTableWidgetItem("SIM" if converged else "NÃO")
-            if converged:
-                conv_item.setForeground(Qt.GlobalColor.green)
-                font = conv_item.font()
-                font.setBold(True)
-                conv_item.setFont(font)
-            else:
-                conv_item.setForeground(Qt.GlobalColor.red)
-                font = conv_item.font()
-                font.setBold(True)
-                conv_item.setFont(font)
-            self.convergence_table.setItem(row, 10, conv_item)
+        for r, inc in enumerate(increments):
+            accepted = inc.get('accepted', True)
+            status_item = QTableWidgetItem("Accepted" if accepted else "Rejected")
+            if not accepted:
+                status_item.setForeground(QColor("red"))
 
+            items = [
+                str(inc.get('step', '')),
+                f"{inc.get('lambda', 0.0):.6f}",
+                f"{inc.get('delta_lambda', 0.0):.6e}",
+                f"{inc.get('arc_length', 0.0):.6e}",
+                str(inc.get('iterations', 0)),
+                f"{inc.get('norm_R', 0.0):.2e}",
+                f"{inc.get('norm_d', 0.0):.2e}",
+                f"{inc.get('norm_E', 0.0):.2e}",
+                f"{inc.get('norm_A', 0.0):.2e}",
+                f"{inc.get('total_norm', 0.0):.2e}",
+                f"{inc.get('max_displacement', 0.0):.6e}",
+                status_item,
+                inc.get('observations', '')
+            ]
+
+            for c, item in enumerate(items):
+                if not isinstance(item, QTableWidgetItem):
+                    item = QTableWidgetItem(item)
+                self.increment_table.setItem(r, c, item)
+
+        # 3. Diagram
+        l_hist = data.get('lambda_history', [])
+        d_hist = data.get('max_displ_history', [])
+
+        if l_hist and d_hist:
+            self.plot_widget.plot(d_hist, l_hist, pen=pg.mkPen('#0096FF', width=3),
+                                symbol='o', symbolBrush='#0096FF', name='Equilibrium Path')
+
+            rejected = data.get('rejected_points', {'displ': [], 'lambda': []})
+            if rejected['displ']:
+                self.plot_widget.plot(rejected['displ'], rejected['lambda'], pen=None,
+                                    symbol='x', symbolPen='r', symbolSize=10, name='Rejected')
+
+        # 4. Convergence Table
+        details = data.get('iteration_details', [])
+        self.convergence_table.setRowCount(len(details))
+
+        for r, d in enumerate(details):
+            def create_crit_item(val):
+                item = QTableWidgetItem("✓" if val else "✗")
+                item.setForeground(QColor("green") if val else QColor("red"))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                return item
+
+            items = [
+                str(d.get('step', '')),
+                str(d.get('iteration', '')),
+                f"{d.get('lambda', 0.0):.6f}",
+                f"{d.get('delta_lambda', 0.0):.6e}",
+                f"{d.get('delta_lambda_iter', 0.0):.6e}",
+                f"{d.get('norm_R', 0.0):.2e}",
+                f"{d.get('norm_d', 0.0):.2e}",
+                f"{d.get('norm_E', 0.0):.2e}",
+                f"{d.get('norm_delta_d', 0.0):.2e}",
+                f"{d.get('norm_A', 0.0):.2e}",
+                f"{d.get('total_norm', 0.0):.2e}",
+                create_crit_item(d.get('arc_length_criterion', False)),
+                create_crit_item(d.get('force_criterion', False)),
+                create_crit_item(d.get('displ_criterion', False)),
+                create_crit_item(d.get('energy_criterion', False)),
+            ]
+
+            # Converged Column
+            is_conv = d.get('converged', False)
+            conv_item = QTableWidgetItem("YES" if is_conv else "NO")
+            conv_item.setForeground(QColor("green") if is_conv else QColor("red"))
+            conv_item.setFont(QFont("Arial", weight=QFont.Weight.Bold))
+            items.append(conv_item)
+
+            for c, item in enumerate(items):
+                if not isinstance(item, QTableWidgetItem):
+                    item = QTableWidgetItem(item)
+                self.convergence_table.setItem(r, c, item)
+
+        # Hide columns specific for one method or vice-versa
+        if is_newton:
+            self.increment_table.setColumnHidden(3, True)
+            self.increment_table.setColumnHidden(8, True)
+            self.increment_table.setColumnHidden(9, True)
+            self.convergence_table.setColumnHidden(4, True)
+            self.convergence_table.setColumnHidden(8, True)
+            self.convergence_table.setColumnHidden(9, True)
+            self.convergence_table.setColumnHidden(10, True)
+            self.convergence_table.setColumnHidden(11, True)
+        else:
+            self.increment_table.setColumnHidden(6, True)
+            self.increment_table.setColumnHidden(7, True)
+            self.convergence_table.setColumnHidden(6, True)
+            self.convergence_table.setColumnHidden(7, True)
 
 class MplCanvas(FigureCanvas):
-    """ Classe para criar um widget de gráfico Matplotlib. """
+    """Create a widget for a Matplotlib plot."""
     def __init__(self, parent=None, width=5, height=4, dpi=120):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = self.fig.add_subplot(111)
@@ -396,1005 +319,780 @@ class MplCanvas(FigureCanvas):
 
 
 class LoadDisplacementDialog(QDialog):
-    """
-    Diálogo para visualizar gráficos de Fator de Carga × Deslocamento.
-    Interface similar ao RFEM com seleção interativa de dados.
-    """
-    
-    def __init__(self, f_vs_d_history, estrutura, analise="Não Linear", parent=None):
-        """
-        Args:
-            f_vs_d_history (list): Lista de tuplas (lambda, force, displacement)
-            estrutura: Objeto da estrutura com informações dos nós
-            analysis_type (str): Tipo de análise ("Linear", "Não Linear", "Flambagem Linear")
-            parent: Widget pai
-        """
+    """Dialog for visualizing load-displacement plots."""
+
+    def __init__(
+        self,
+        history: List[Tuple[float, npt.NDArray[np.float64], npt.NDArray[np.float64]]],
+        structure: Structure,
+        analysis: str = "Nonlinear",
+        parent: Optional[QWidget] = None):
         super().__init__(parent)
-        
-        self.f_vs_d_history = f_vs_d_history
-        self.estrutura = estrutura
-        self.analise = analise
-        self.num_nodes = len(estrutura.original_nodes)
-        self.cursors = []  # Lista para gerenciar múltiplos cursores
 
-        # Dados teóricos do Abaqus
-        self.dados_abaqus = {
-        'Ux': np.array([
-            [0.0, 0.0],
-            [0.000283076, 0.01],
-            [0.00113109, 0.02],
-            [0.00345385, 0.035],
-            [0.00925385, 0.0575],
-            [0.0229045, 0.09125],
-            [0.0532512, 0.141875],
-            [0.115604, 0.217812],
-            [0.214647, 0.317813],
-            [0.318434, 0.417812],
-            [0.418179, 0.517812],
-            [0.510137, 0.617813],
-            [0.593319, 0.717812],
-            [0.667977, 0.817813],
-            [0.73485, 0.917813],
-            [0.784932, 1.0]
-        ]),
-        'Uy': np.array([
-            [0.0, 0.0],
-            [0.0441567, 0.01],
-            [0.088256, 0.02],
-            [0.154173, 0.035],
-            [0.252159, 0.0575],
-            [0.395971, 0.09125],
-            [0.601251, 0.141875],
-            [0.878251, 0.217812],
-            [1.18011, 0.317813],
-            [1.41601, 0.417812],
-            [1.59905, 0.517812],
-            [1.74196, 0.617813],
-            [1.85497, 0.717812],
-            [1.94569, 0.817813],
-            [2.0196, 0.917813],
-            [2.07097, 1.0]
-        ]),
-        'Uz': np.array([
-            [0.0, 0.0],
-            [-0.000283076, 0.01],
-            [-0.00113109, 0.02],
-            [-0.00345385, 0.035],
-            [-0.00925385, 0.0575],
-            [-0.0229045, 0.09125],
-            [-0.0532512, 0.141875],
-            [-0.115604, 0.217812],
-            [-0.214647, 0.317813],
-            [-0.318434, 0.417812],
-            [-0.418179, 0.517812],
-            [-0.510137, 0.617813],
-            [-0.593319, 0.717812],
-            [-0.667977, 0.817813],
-            [-0.73485, 0.917813],
-            [-0.784932, 1.0]
-        ]),
-        'Rx': np.array([
-            [0.0, 0.0],
-            [0.0140807, 0.01],
-            [0.0281465, 0.02],
-            [0.0491852, 0.035],
-            [0.0805126, 0.0575],
-            [0.12668, 0.09125],
-            [0.193201, 0.141875],
-            [0.284779, 0.217812],
-            [0.388227, 0.317813],
-            [0.472977, 0.417812],
-            [0.541973, 0.517812],
-            [0.598367, 0.617813],
-            [0.644885, 0.717812],
-            [0.683661, 0.817813],
-            [0.716325, 0.917813],
-            [0.739601, 1.0]
-        ]),
-        'Ry': np.array([
-            [0.0, 0.0],
-            [0.0, 0.01],
-            [0.0, 0.02],
-            [0.0, 0.035],
-            [0.0, 0.0575],
-            [0.0, 0.09125],
-            [0.0, 0.141875],
-            [0.0, 0.217812],
-            [0.0, 0.317813],
-            [0.0, 0.417812],
-            [0.0, 0.517812],
-            [0.0, 0.617813],
-            [0.0, 0.717812],
-            [0.0, 0.817813],
-            [0.0, 0.917813],
-            [0.0, 1.0]
-        ]),
-        'Rz': np.array([
-            [0.0, 0.0],
-            [0.0140807, 0.01],
-            [0.0281465, 0.02],
-            [0.0491852, 0.035],
-            [0.0805126, 0.0575],
-            [0.12668, 0.09125],
-            [0.193201, 0.141875],
-            [0.284779, 0.217812],
-            [0.388227, 0.317813],
-            [0.472977, 0.417812],
-            [0.541973, 0.517812],
-            [0.598367, 0.617813],
-            [0.644885, 0.717812],
-            [0.683661, 0.817813],
-            [0.716325, 0.917813],
-            [0.739601, 1.0]
-        ])
-        }
+        # Initial data
+        self.history = history
+        self.structure = structure
+        self.analysis = analysis
+        self.num_nodes = len(structure.original_nodes)
+        self.cursors = []
 
-        # Dados teóricos do RFEM
-        self.dados_rfem = {
-        'Ux': np.array([
-            [0.0, 0.0],
-            [12.4e-3, 0.067],    # Deslocamento em metros (mm / 1000)
-            [47.3e-3, 0.133],
-            [99.4e-3, 0.200],
-            [162.4e-3, 0.267],
-            [230.6e-3, 0.333],
-            [299.9e-3, 0.400],
-            [367.9e-3, 0.467],
-            [432.9e-3, 0.533],
-            [494.4e-3, 0.600],
-            [551.9e-3, 0.667],
-            [605.5e-3, 0.733],
-            [655.4e-3, 0.800],
-            [701.7e-3, 0.867],
-            [744.8e-3, 0.933],
-            [784.8e-3, 1.000],
-        ]),
-        'Uy': np.array([
-            [0.0, 0.0],
-            [291.7e-3, 0.067],   # Deslocamento em metros (mm / 1000)
-            [567.9e-3, 0.133],
-            [817.4e-3, 0.200],
-            [1035.4e-3, 0.267],
-            [1221.9e-3, 0.333],
-            [1379.8e-3, 0.400],
-            [1513.1e-3, 0.467],
-            [1625.7e-3, 0.533],
-            [1721.3e-3, 0.600],
-            [1803.0e-3, 0.667],
-            [1873.2e-3, 0.733],
-            [1933.9e-3, 0.800],
-            [1986.8e-3, 0.867],
-            [2033.1e-3, 0.933],
-            [2074.0e-3, 1.000],
-        ]),
-        'Uz': np.array([
-            [0.0, 0.0],
-            [-12.4e-3, 0.067],   # Deslocamento em metros (mm / 1000)
-            [-47.3e-3, 0.133],
-            [-99.4e-3, 0.200],
-            [-162.4e-3, 0.267],
-            [-230.6e-3, 0.333],
-            [-299.9e-3, 0.400],
-            [-367.9e-3, 0.467],
-            [-432.9e-3, 0.533],
-            [-494.4e-3, 0.600],
-            [-551.9e-3, 0.667],
-            [-605.5e-3, 0.733],
-            [-655.4e-3, 0.800],
-            [-701.7e-3, 0.867],
-            [-744.8e-3, 0.933],
-            [-784.8e-3, 1.000],
-        ]),
-        'Rx': np.array([
-            [0.0, 0.0],
-            [-93.2e-3, 0.067],   # Rotação em radianos (mrad / 1000)
-            [-182.4e-3, 0.133],
-            [-264.5e-3, 0.200],
-            [-338.2e-3, 0.267],
-            [-403.1e-3, 0.333],
-            [-459.8e-3, 0.400],
-            [-509.3e-3, 0.467],
-            [-552.4e-3, 0.533],
-            [-590.1e-3, 0.600],
-            [-623.3e-3, 0.667],
-            [-652.5e-3, 0.733],
-            [-678.5e-3, 0.800],
-            [-701.6e-3, 0.867],
-            [-722.2e-3, 0.933],
-            [-740.8e-3, 1.000],
-        ]),
-        'Ry': np.array([
-            [0.0, 0.0],
-            [0.0, 0.067],       # Rotação em radianos (mrad / 1000)
-            [0.0, 0.133],
-            [0.0, 0.200],
-            [0.0, 0.267],
-            [0.0, 0.333],
-            [0.0, 0.400],
-            [0.0, 0.467],
-            [0.0, 0.533],
-            [0.0, 0.600],
-            [0.0, 0.667],
-            [0.0, 0.733],
-            [0.0, 0.800],
-            [0.0, 0.867],
-            [0.0, 0.933],
-            [0.0, 1.000],
-        ]),
-        'Rz': np.array([
-            [0.0, 0.0],
-            [-93.2e-3, 0.067],   # Rotação em radianos (mrad / 1000)
-            [-182.4e-3, 0.133],
-            [-264.5e-3, 0.200],
-            [-338.2e-3, 0.267],
-            [-403.1e-3, 0.333],
-            [-459.8e-3, 0.400],
-            [-509.3e-3, 0.467],
-            [-552.4e-3, 0.533],
-            [-590.1e-3, 0.600],
-            [-623.3e-3, 0.667],
-            [-652.5e-3, 0.733],
-            [-678.5e-3, 0.800],
-            [-701.6e-3, 0.867],
-            [-722.2e-3, 0.933],
-            [-740.8e-3, 1.000],
-        ]),
-        }
-        
-        # Extrair dados do histórico
-        self.lambda_values = np.array([item[0] for item in f_vs_d_history])
-        self.displacement_history = np.hstack([item[2] for item in f_vs_d_history]).T
-        
-        # Configurações dos eixos
+        # Extract data from history
+        self.lambda_values = np.array([item[0] for item in history])
+        self.displacement_history = np.hstack([item[2] for item in history]).T
+
+        # Axis configuration
         self.dof_names = ['|U|', 'Ux', 'Uy', 'Uz', 'Rx', 'Ry', 'Rz']
         self.dof_units = ['m', 'm', 'm', 'm', 'rad', 'rad', 'rad']
-        self.dof_descriptions = [
-            'Deslocamento Resultante',
-            'Deslocamento em X',
-            'Deslocamento em Y', 
-            'Deslocamento em Z',
-            'Rotação em torno de X',
-            'Rotação em torno de Y',
-            'Rotação em torno de Z'
-        ]
-        
-        # Dados selecionados (padrão)
-        self.selected_h_dof = 'Ux'  # Eixo horizontal
-        self.selected_v_dof = None  # Eixo vertical (None = Load Factor)
-        self.selected_h_nodes = [1]  # Nós selecionados para eixo horizontal
-        self.selected_v_nodes = []   # Nós selecionados para eixo vertical
-        
-        self.setWindowTitle("Gráfico Carga x Deslocamento")
+        self.dof_desc = ['Magnitude', 'Disp X', 'Disp Y', 'Disp Z', 'Rot X', 'Rot Y', 'Rot Z']
+
+        # State
+        self.selections = {
+            'h': {'result': 1, 'dof': 'Ux', 'nodes': [1]},
+            'v': {'result': 0, 'dof': None, 'nodes': []}
+        }
+
+        self.setWindowTitle("Load vs Displacement")
         self.resize(1400, 900)
-        
         self.setup_ui()
         self.update_plot()
-    
+
     def setup_ui(self):
-        """Configura a interface do usuário."""
+        """Setup user interface for the equilibrium path dialog."""
         layout = QVBoxLayout(self)
-        
-        # TabWidget principal
+
+        # Main widget
         self.tab_widget = QTabWidget()
-        
-        # Aba 1: Diagram (Seleção + Pré-visualização)
-        self.diagram_tab = self.create_diagram_tab()
-        self.tab_widget.addTab(self.diagram_tab, "Diagrama")
-        
-        # Aba 2: Table (Tabela de dados)
-        self.table_tab = self.create_table_tab()
-        self.tab_widget.addTab(self.table_tab, "Tabela")
-        
-        # Aba 3: Full Diagram (Gráfico isolado)
-        self.full_diagram_tab = self.create_full_diagram_tab()
-        self.tab_widget.addTab(self.full_diagram_tab, "Gráfico Completo")
-        
+
+        # Tab 1: Interactive Diagram
+        self.tab_widget.addTab(self._create_interactive_tab(), "Diagram")
+
+        # Tab 2: Data Table
+        self.tab_widget.addTab(self._create_table_tab(), "Table")
+
+        # Tab 3: Full Diagram (Full plot)
+        self.full_diagram_tab = self.create_full_plot_tab()
+        self.tab_widget.addTab(self.full_diagram_tab, "Full plot")
+
         layout.addWidget(self.tab_widget)
-        
-        # Botões de ação
+
+        # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
-        export_btn = QPushButton("Exportar Imagem...")
+        export_btn = QPushButton("Export...")
         export_btn.clicked.connect(self.export_image)
-        
-        close_btn = QPushButton("Fechar")
+        close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        
         button_layout.addWidget(export_btn)
         button_layout.addWidget(close_btn)
-        
         layout.addLayout(button_layout)
 
-        # Define o estado inicial e atualiza os gráficos
-        self.h_result_combo.setCurrentIndex(1)
-        self.v_result_combo.setCurrentIndex(0)
-        self.on_h_result_changed()
-        self.on_v_result_changed()
-        
-        # Conectar mudança de aba para atualizar gráfico completo
+        # Connect tab change signal to update plots
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
-    
-    def create_diagram_tab(self):
-        """Cria a aba Diagram com seleção à esquerda e gráfico à direita."""
+
+        # Initial State Trigger
+        self.ui_h['type'].setCurrentIndex(1) # Default X-Axis: Displacement
+        self.ui_v['type'].setCurrentIndex(0) # Default Y-Axis: Load Factor
+
+    def _create_interactive_tab(self) -> QWidget:
+        """Create the diagram tab with selection on the left and plot on the right."""
         widget = QWidget()
         main_layout = QHBoxLayout(widget)
-        
-        # ====================================================================
-        # PAINEL ESQUERDO - SELEÇÃO DE DADOS
-        # ====================================================================
-        left_panel = QWidget()
-        left_panel.setMaximumWidth(400)
-        left_layout = QVBoxLayout(left_panel)
-        
-        # Tipo de Análise
-        analysis_group = QGroupBox("Tipo de Análise")
-        analysis_layout = QVBoxLayout()
-        analysis_label = QLabel(self.analise)
-        analysis_label.setStyleSheet("font-weight: bold; font-size: 12pt; color: #0066cc;")
-        analysis_layout.addWidget(analysis_label)
-        analysis_group.setLayout(analysis_layout)
-        left_layout.addWidget(analysis_group)
-        
-        # --- Eixo Horizontal ---
-        h_axis_group = QGroupBox("Eixo Horizontal")
-        h_axis_layout = QVBoxLayout()
-        
-        # Tipo de resultado
-        h_result_layout = QHBoxLayout()
-        h_result_layout.addWidget(QLabel("Tipo de Resultado:"))
-        self.h_result_combo = QComboBox()
-        self.h_result_combo.addItem("Load factor (λ)")
-        self.h_result_combo.addItem("Deformações Globais - Nós")
-        self.h_result_combo.currentIndexChanged.connect(self.on_h_result_changed) # Conexão adicionada
-        h_result_layout.addWidget(self.h_result_combo)
-        h_axis_layout.addLayout(h_result_layout)
-        
-        # Dado (tipo de deslocamento)
-        self.h_data_layout = QHBoxLayout() # Modificado para self.
-        self.h_data_layout.addWidget(QLabel("Dado:"))
-        self.h_data_combo = QComboBox()
-        for i, (name, desc) in enumerate(zip(self.dof_names, self.dof_descriptions)):
-            self.h_data_combo.addItem(f"{name} - {desc}", name)
-        self.h_data_combo.setCurrentText("Ux - Deslocamento em X")
-        self.h_data_combo.currentIndexChanged.connect(self.on_h_data_changed)
-        self.h_data_layout.addWidget(self.h_data_combo, 1)
-        h_axis_layout.addLayout(self.h_data_layout)
-        
-        # Seleção de nós
-        self.h_nodes_label = QLabel("Nós:") # Modificado para self.
-        h_axis_layout.addWidget(self.h_nodes_label)
-        self.h_nodes_list = QListWidget()
-        self.h_nodes_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        for i in range(1, self.num_nodes + 1):
-            self.h_nodes_list.addItem(f"Nó {i}")
-        self.h_nodes_list.item(0).setSelected(True)  # Selecionar nó 1 por padrão
-        self.h_nodes_list.itemSelectionChanged.connect(self.on_h_nodes_changed)
-        self.h_nodes_list.setMaximumHeight(150)
-        h_axis_layout.addWidget(self.h_nodes_list)
-        
-        h_axis_group.setLayout(h_axis_layout)
-        left_layout.addWidget(h_axis_group)
-        
-        # --- Eixo Vertical ---
-        v_axis_group = QGroupBox("Eixo Vertical")
-        v_axis_layout = QVBoxLayout()
-        
-        # Tipo de resultado
-        v_result_layout = QHBoxLayout()
-        v_result_layout.addWidget(QLabel("Tipo de Resultado:"))
-        self.v_result_combo = QComboBox()
-        self.v_result_combo.addItem("Load Factor (λ)")
-        self.v_result_combo.addItem("Deformações Globais - Nós")
-        self.v_result_combo.currentIndexChanged.connect(self.on_v_result_changed)
-        v_result_layout.addWidget(self.v_result_combo)
-        v_axis_layout.addLayout(v_result_layout)
-        
-        # Dado (tipo de deslocamento) - inicialmente oculto
-        self.v_data_layout = QHBoxLayout()
-        self.v_data_layout.addWidget(QLabel("Dado:"))
-        self.v_data_combo = QComboBox()
-        for i, (name, desc) in enumerate(zip(self.dof_names, self.dof_descriptions)):
-            self.v_data_combo.addItem(f"{name} - {desc}", name)
-        self.v_data_combo.currentIndexChanged.connect(self.on_v_data_changed)
-        self.v_data_layout.addWidget(self.v_data_combo, 1)
-        v_axis_layout.addLayout(self.v_data_layout)
-        
-        # Seleção de nós - inicialmente oculto
-        self.v_nodes_label = QLabel("Nós:")
-        self.v_nodes_list = QListWidget()
-        self.v_nodes_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        for i in range(1, self.num_nodes + 1):
-            self.v_nodes_list.addItem(f"Nó {i}")
-        self.v_nodes_list.itemSelectionChanged.connect(self.on_v_nodes_changed)
-        self.v_nodes_list.setMaximumHeight(150)
-        
-        v_axis_layout.addWidget(self.v_nodes_label)
-        v_axis_layout.addWidget(self.v_nodes_list)
-        
-        v_axis_group.setLayout(v_axis_layout)
-        left_layout.addWidget(v_axis_group)
-        
-        left_layout.addStretch()
-        
-        # ====================================================================
-        # PAINEL DIREITO - PRÉ-VISUALIZAÇÃO DO GRÁFICO
-        # ====================================================================
+
+        # Create right panel (graph visualization)
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Gráfico
+        # Create graph visualization widget
         self.preview_plot = self.create_plot_widget()
         right_layout.addWidget(self.preview_plot)
-        
-        # ====================================================================
-        # SPLITTER PARA AJUSTE DE TAMANHO
-        # ====================================================================
+
+        # Create left panel (Controls)
+        left_panel = QWidget()
+        left_panel.setMaximumWidth(400)
+        left_layout = QVBoxLayout(left_panel)
+
+        # Create analysis group
+        analysis_group = QGroupBox("Analysis")
+        analysis_layout = QVBoxLayout(analysis_group)
+        analysis_label = QLabel(self.analysis)
+        analysis_label.setStyleSheet("font-weight: bold; font-size: 12pt; color: #0066cc;")
+        analysis_layout.addWidget(analysis_label)
+        left_layout.addWidget(analysis_group)
+
+        # Axis Controls
+        self.ui_h = self._create_axis_control_group("Horizontal Axis", 'h', left_layout)
+        self.ui_v = self._create_axis_control_group("Vertical Axis", 'v', left_layout)
+
+        left_layout.addStretch()
+
+        # Size adjustment
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 1)  # Painel esquerdo
-        splitter.setStretchFactor(1, 3)  # Painel direito (maior)
-        
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+
         main_layout.addWidget(splitter)
-        
         return widget
-    
-    def create_table_tab(self):
-        """Cria a aba Table com os dados tabelados."""
+
+    def _create_axis_control_group(self, title: str, axis_key: str, parent_layout: QVBoxLayout) -> Dict:
+        """Helper to create identical control groups for H and V axes."""
+        group = QGroupBox(title)
+        layout = QVBoxLayout(group)
+
+        # Result Type
+        h_res = QHBoxLayout()
+        h_res.addWidget(QLabel("Type:"))
+        combo_type = QComboBox()
+        combo_type.addItems(["Load Factor (λ)", "Global Displacements"])
+        h_res.addWidget(combo_type)
+        layout.addLayout(h_res)
+
+        # Data Selection (Hidden by default if Load Factor)
+        layout_data = QHBoxLayout()
+        lbl_data = QLabel("DOF:")
+        layout_data.addWidget(lbl_data)
+        combo_dof = QComboBox()
+        for name, desc in zip(self.dof_names, self.dof_desc):
+            combo_dof.addItem(f"{name} - {desc}", name)
+        layout_data.addWidget(combo_dof, 1)
+        layout.addLayout(layout_data)
+
+        # Node Selection
+        lbl_nodes = QLabel("Nodes:")
+        list_nodes = QListWidget()
+        list_nodes.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        list_nodes.setMaximumHeight(150)
+        for i in range(1, self.num_nodes + 1):
+            list_nodes.addItem(f"Node {i}")
+
+        if axis_key == 'h':
+            list_nodes.item(0).setSelected(True)
+
+        layout.addWidget(lbl_nodes)
+        layout.addWidget(list_nodes)
+
+        parent_layout.addWidget(group)
+
+        # Logic / Connections
+        def update_visibility():
+            is_displ = (combo_type.currentIndex() == 1)
+
+            # Show/Hide widgets
+            lbl_data.setVisible(is_displ)
+            combo_dof.setVisible(is_displ)
+            lbl_nodes.setVisible(is_displ)
+            list_nodes.setVisible(is_displ)
+
+            # Update internal state dictionary
+            self.selections[axis_key]['result'] = combo_type.currentIndex()
+            if is_displ:
+                self.selections[axis_key]['dof'] = combo_dof.currentData()
+                self.selections[axis_key]['nodes'] = [
+                    int(item.text().split()[1]) for item in list_nodes.selectedItems()
+                ]
+            else:
+                self.selections[axis_key]['dof'] = None
+                self.selections[axis_key]['nodes'] = []
+
+            # Refresh plots/tables
+            self.update_plot()
+            self.update_table()
+
+        # Connect signals and force initial update
+        combo_type.currentIndexChanged.connect(update_visibility)
+        combo_dof.currentIndexChanged.connect(update_visibility)
+        list_nodes.itemSelectionChanged.connect(update_visibility)
+        update_visibility()
+
+        # Return handles to widgets
+        return {
+            'type': combo_type,
+            'dof_lbl': lbl_data,
+            'dof_combo': combo_dof,
+            'nodes_lbl': lbl_nodes,
+            'nodes_list': list_nodes
+        }
+
+    def _create_table_tab(self):
+        """Create table tab with graph data."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Descrição
-        desc_label = QLabel("Dados do Gráfico")
+
+        # Description
+        desc_label = QLabel("Graph Data Points")
         desc_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(desc_label)
-        
-        # Tabela
+
+        # Table
         self.data_table = QTableWidget()
         self.data_table.setAlternatingRowColors(True)
         layout.addWidget(self.data_table)
-        
+
         return widget
-    
-    def create_full_diagram_tab(self):
-        """Cria a aba Full Diagram com o gráfico isolado."""
+
+    def create_full_plot_tab(self):
+        """Create full plot tab with the selected data in tab 1."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Gráfico completo
+
+        # Create full plot widget
         self.full_plot = self.create_plot_widget()
         layout.addWidget(self.full_plot)
-        
+
         return widget
-    
+
     def create_plot_widget(self):
-        """Cria um widget de gráfico Matplotlib configurado."""        
+        """Creates a Matplotlib canvas widget."""
         return MplCanvas(self, width=5, height=4, dpi=100)
-    
-    def on_h_result_changed(self):
-        """Callback quando o tipo de resultado do eixo horizontal muda."""
-        is_displacement = self.h_result_combo.currentIndex() == 1
-        
-        # Mostrar/ocultar campos de deslocamento
-        self.h_data_combo.setVisible(is_displacement)
-        self.h_data_layout.itemAt(0).widget().setVisible(is_displacement)
-        self.h_nodes_label.setVisible(is_displacement)
-        self.h_nodes_list.setVisible(is_displacement)
-        
-        if is_displacement:
-            # Garante que os valores sejam atualizados quando os campos se tornam visíveis
-            self.selected_h_dof = self.h_data_combo.currentData()
-            selected_items = self.h_nodes_list.selectedItems()
-            self.selected_h_nodes = [int(item.text().split()[1]) for item in selected_items]
-        else:
-            self.selected_h_dof = None
-            self.selected_h_nodes = []
-        
-        self.update_plot()
-        self.update_table()
 
-    def on_h_data_changed(self):
-        """Callback quando o tipo de dado do eixo horizontal muda."""
-        self.selected_h_dof = self.h_data_combo.currentData()
-        self.update_plot()
-        self.update_table()
-    
-    def on_h_nodes_changed(self):
-        """Callback quando a seleção de nós do eixo horizontal muda."""
-        selected_items = self.h_nodes_list.selectedItems()
-        self.selected_h_nodes = [int(item.text().split()[1]) for item in selected_items]
-        self.update_plot()
-        self.update_table()
-    
-    def on_v_result_changed(self):
-        """Callback quando o tipo de resultado do eixo vertical muda."""
-        is_displacement = self.v_result_combo.currentIndex() == 1
-        
-        # Mostrar/ocultar campos de deslocamento
-        self.v_data_combo.setVisible(is_displacement)
-        self.v_data_layout.itemAt(0).widget().setVisible(is_displacement)
-        self.v_nodes_label.setVisible(is_displacement)
-        self.v_nodes_list.setVisible(is_displacement)
-        
-        if is_displacement:
-            self.selected_v_dof = self.v_data_combo.currentData()
-            selected_items = self.v_nodes_list.selectedItems()
-            self.selected_v_nodes = [int(item.text().split()[1]) for item in selected_items]
-        else:
-            self.selected_v_dof = None
-            self.selected_v_nodes = []
-        
-        self.update_plot()
-        self.update_table()
-    
-    def on_v_data_changed(self):
-        """Callback quando o tipo de dado do eixo vertical muda."""
-        self.selected_v_dof = self.v_data_combo.currentData()
-        self.update_plot()
-        self.update_table()
-    
-    def on_v_nodes_changed(self):
-        """Callback quando a seleção de nós do eixo vertical muda."""
-        selected_items = self.v_nodes_list.selectedItems()
-        self.selected_v_nodes = [int(item.text().split()[1]) for item in selected_items]
-        self.update_plot()
-        self.update_table()
-    
-    def _get_axis_data_and_labels(self, selected_dof, selected_nodes, axis_prefix):
-        """
-        Função auxiliar generalizada para obter os dados e rótulos de um eixo.
-        Retorna uma lista de séries de dados e um rótulo principal para o eixo.
-        """
-        if selected_dof is None:  # Caso seja "Fator de Carga"
-            label = "Load Factor"
-            series = [{
-                'metadata': self.lambda_values,
-                'legend': label,
-                'node': None # Sem nó específico para o fator de carga
-            }]
-            return series, label
-        else:  # Caso seja "Deslocamento"
-            if not selected_nodes:
-                return [], "Nenhum nó selecionado"
-
-            dof_idx = self.dof_names.index(selected_dof)
-            desc = self.dof_names[dof_idx]
-            unit = self.dof_units[dof_idx]
-            main_label = f"{desc} ({unit})"
-            
-            series = []
-            for node in selected_nodes:
-                node_data = self.get_displacement_data(node, selected_dof)
-                legend_label = f"{axis_prefix}: Node {node} ({selected_dof})"
-                series.append({
-                    'metadata': node_data,
-                    'legend': legend_label,
-                    'node': node
-                })
-            return series, main_label
-
-    def get_displacement_data(self, node, dof_name):
-        """
-        Obtém os dados de deslocamento para um nó e grau de liberdade específicos.
-        
-        Args:
-            node (int): Número do nó (1-indexed)
-            dof_name (str): Nome do grau de liberdade ('ux', 'uy', etc.)
-        
-        Returns:
-            np.ndarray: Array com os valores de deslocamento
-        """
-        if dof_name == '|U|':
-            # Deslocamento resultante
-            ux_idx = (node - 1) * 6 + 0
-            uy_idx = (node - 1) * 6 + 1
-            uz_idx = (node - 1) * 6 + 2
-            
-            ux = self.displacement_history[:, ux_idx]
-            uy = self.displacement_history[:, uy_idx]
-            uz = self.displacement_history[:, uz_idx]
-            
-            return np.sqrt(ux**2 + uy**2 + uz**2)
-        else:
-            # Deslocamento individual
-            dof_index = self.dof_names.index(dof_name)
-            gl_index = (node - 1) * 6 + dof_index - 1
-            
-            return self.displacement_history[:, gl_index]
-    
     def update_plot(self):
-        """Atualiza o gráfico de pré-visualização de forma generalizada."""
-        self._draw_plot(self.preview_plot.axes, is_full_plot=False)
+        """Triggers a redraw of the preview plot."""
+        self._draw_plot(self.preview_plot.axes)
 
-    def calcular_r2(self, x_sim, y_sim, x_ext, y_ext, tol=1e-9):
+    def update_full_plot(self):
+        """Triggers a redraw of the full-screen plot."""
+        self._draw_plot(self.full_plot.axes, is_full_plot=True)
+
+    def on_tab_changed(self, index):
+        """Updates the full plot when the user switches to that tab."""
+        if index == 2:  # Full Plot Tab
+            self.update_full_plot()
+
+    def _draw_plot(self, ax, is_full_plot: bool = False):
         """
-        Calcula o R² entre os dados do SimuFrame e dados externos,
-        usando interpolação para alinhar os pontos.
+        Main plotting logic.
+        Draws the Load Factor vs Displacement/Rotation graph on the provided axes.
         """
-        # Para evitar erros em dados com poucos pontos ou sem variação
-        if len(x_sim) < 2 or len(x_ext) < 2:
-            return np.nan
-        
-        # Verifica se os deslocamentos são todos nulos (ou quase nulos)
-        is_x_programa_nulo = np.ptp(x_sim) < tol
-        is_x_externo_nulo = np.ptp(x_ext) < tol
-
-        # Ambos os deslocamentos são nulos
-        if is_x_programa_nulo and is_x_externo_nulo:
-            return 1.0
-
-        # Um dos deslocamentos é nulo
-        if is_x_programa_nulo or is_x_externo_nulo:
-            return np.nan
-        
-        try:            
-            # Garante que os pontos de interpolação estejam ordenados
-            sort_indices = np.argsort(x_ext)
-            x_externo_sorted = x_ext[sort_indices]
-            y_externo_sorted = y_ext[sort_indices]
-            
-            # Remove duplicatas nodes pontos x
-            unique_indices = np.unique(x_externo_sorted, return_index=True)[1]
-            x_externo_unique = x_externo_sorted[unique_indices]
-            y_externo_unique = y_externo_sorted[unique_indices]
-
-            if len(x_externo_unique) < 2:
-                # Não há pontos suficientes para interpolar após remover duplicatas
-                return np.nan
-
-            # Interpola os valores externos para os pontos de deslocamento do seu programa
-            y_externo_interpolado = np.interp(x_sim, x_externo_unique, y_externo_unique)
-            
-            # Calcula o R²
-            r2 = r2_score(y_sim, y_externo_interpolado)
-            
-            return r2
-        
-        except Exception:
-            return np.nan # Retorna NaN se o cálculo falhar
-
-    def _draw_plot(self, ax, is_full_plot=False):
-        """
-        Desenha o gráfico e a validação.
-        """
-        # Limpar cursor anterior se existir
+        # Cleanup of old cursors
         self._clear_cursor(ax)
-
         ax.clear()
-        tol = 1e-6
 
-        # Obter os valores das séries do programa
-        x_series, x_label = self._get_axis_data_and_labels(self.selected_h_dof, self.selected_h_nodes, "H")
-        y_series, y_label = self._get_axis_data_and_labels(self.selected_v_dof, self.selected_v_nodes, "V")
+        # Fetch Data
+        x_series, x_axis_label = self._get_axis_data('h')
+        y_series, y_axis_label = self._get_axis_data('v')
 
         if not x_series or not y_series:
             ax.figure.canvas.draw()
             return
-        
-        all_x_data, all_y_data = [], []
+
+        # Plotting Loop
+        colors = matplotlib.pyplot.get_cmap('tab10').colors # type: ignore
         color_idx = 0
-        colors = matplotlib.pyplot.get_cmap('tab10').colors
-        simuframe_curves = []
 
-        # Armazena os dados das linhas para o cursor
-        lines_data_for_cursor = []
+        all_x_points = []
+        all_y_points = []
+        cursor_lines = []
 
+        # Cartesian product: Plot every selected X against every selected Y
         for x_item in x_series:
             for y_item in y_series:
-                if x_item['metadata'] is y_item['metadata']:
+                # Avoid plotting a variable against itself (identity check)
+                if x_item['label'] == y_item['label']:
                     continue
 
-                legend = y_item['legend'] if x_item['node'] is None else x_item['legend']
-                legend = f"SimuFrame - {legend.split(': ')[1]}"
+                # Construct Legend
+                # If X is just Load Factor (common case), we only label based on Y
+                if "Load Factor" in x_item['label']:
+                    legend_label = f"SimuFrame - {y_item['label']}"
+                else:
+                    legend_label = f"SimuFrame - {y_item['label']} vs {x_item['label']}"
 
-                ax.plot(x_item['metadata'], y_item['metadata'], marker='o',
-                        markersize=4, linestyle='-', label=legend, 
-                        color=colors[color_idx % len(colors)])
+                current_color = colors[color_idx % len(colors)]
 
-                # Adicionar dados para o cursor
-                lines_data_for_cursor.append({
-                    'x': np.array(x_item['metadata']),
-                    'y': np.array(y_item['metadata']),
-                    'label': legend,
-                    'color': colors[color_idx % len(colors)]
+                # Plot
+                ax.plot(
+                    x_item['data'],
+                    y_item['data'],
+                    marker='o',
+                    markersize=4,
+                    linestyle='-',
+                    label=legend_label,
+                    color=current_color
+                )
+
+                # Store data for interactive cursor and limits
+                cursor_lines.append({
+                    'x': x_item['data'],
+                    'y': y_item['data'],
+                    'label': legend_label,
+                    'color': current_color
                 })
 
-                # Coleta os dados para controle de limites
-                all_x_data.append(x_item['metadata'])
-                all_y_data.append(y_item['metadata'])
-                simuframe_curves.append({'x': x_item['metadata'], 'y': y_item['metadata']})
+                all_x_points.append(x_item['data'])
+                all_y_points.append(y_item['data'])
                 color_idx += 1
-        
-        # Validar os dados
-        is_h_disp = self.selected_h_dof is not None
-        is_v_load = self.selected_v_dof is None
-        is_h_load = self.selected_h_dof is None
-        is_v_disp = self.selected_v_dof is not None
 
-        # Condição: um eixo é deslocamento e o outro é fator de carga
-        if (is_h_disp and is_v_load) or (is_h_load and is_v_disp):
-            dof_key = self.selected_h_dof if is_h_disp else self.selected_v_dof
-            
-            # Plotar dados do Abaqus
-            if dof_key in self.dados_abaqus:
-                dados_ext = self.dados_abaqus[dof_key]
-                u_ext, lambda_ext = dados_ext[:, 0], dados_ext[:, 1]
-                
-                # O sinal da rotação no Abaqus pode ser invertido
-                if dof_key.startswith('R'):
-                    u_ext = -u_ext
-                
-                # Calcula R² com a primeira curva do SimuFrame
-                r2 = self.calcular_r2(simuframe_curves[0]['x'], simuframe_curves[0]['y'], u_ext, lambda_ext)
-                label = f'Abaqus (R²={r2:.4f})' if not np.isnan(r2) else 'Abaqus'
+        # Axis Formatting
+        # Auto-center if variation is negligible (e.g., zero displacement)
+        tol = 1e-6
+        if all_x_points:
+            x_concat = np.concatenate(all_x_points)
+            if np.ptp(x_concat) < tol:
+                mean_x = np.mean(x_concat)
+                ax.set_xlim(mean_x - tol, mean_x + tol)
 
-                if is_h_disp:  # Gráfico é U vs Lambda
-                    ax.plot(u_ext, lambda_ext, 'x--', color='red', 
-                           label=label, linewidth=1.5, markersize=6)
-                    
-                else:  # Gráfico é Lambda vs U
-                    ax.plot(lambda_ext, u_ext, 'x--', color='red', 
-                           label=label, linewidth=1.5, markersize=6)
-                    
-            # Plotar dados do RFEM
-            if dof_key in self.dados_rfem:
-                dados_ext = self.dados_rfem[dof_key]
-                u_ext, lambda_ext = dados_ext[:, 0], dados_ext[:, 1]
-                
-                r2 = self.calcular_r2(simuframe_curves[0]['x'], simuframe_curves[0]['y'], u_ext, lambda_ext)
-                label = f'RFEM (R²={r2:.4f})' if not np.isnan(r2) else 'RFEM'
+        if all_y_points:
+            y_concat = np.concatenate(all_y_points)
+            if np.ptp(y_concat) < tol:
+                mean_y = np.mean(y_concat)
+                ax.set_ylim(mean_y - tol, mean_y + tol)
 
-                if is_h_disp:  # Gráfico é U vs Lambda
-                    ax.plot(u_ext, lambda_ext, '+:', color='green', 
-                           label=label, linewidth=1.5, markersize=7)
-                    
-                else:  # Gráfico é Lambda vs U
-                    ax.plot(lambda_ext, u_ext, '+:', color='green', 
-                           label=label, linewidth=1.5, markersize=7)
-                    
-        # Controle de limite dos eixos
-        # Verifica o eixo X
-        if all_x_data:
-            x_values = np.concatenate(all_x_data)
-            if np.ptp(x_values) < tol:
-                # Se a variação for desprezível, centraliza o gráfico em 0
-                media_x = np.mean(x_values)
-                ax.set_xlim(media_x - tol, media_x + tol)
-
-        # Verifica o eixo Y
-        if all_y_data:
-            y_values = np.concatenate(all_y_data)
-            if np.ptp(y_values) < tol:
-                media_y = np.mean(y_values)
-                ax.set_ylim(media_y - tol, media_y + tol)
-
-        # Configuração final do gráfico
-        ax.set_xlabel(x_label, fontsize=11, weight='bold')
-        ax.set_ylabel(y_label, fontsize=11, weight='bold')
+        ax.set_xlabel(x_axis_label, fontsize=11, weight='bold')
+        ax.set_ylabel(y_axis_label, fontsize=11, weight='bold')
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.3)
-        ax.legend(loc='best', fontsize=9, framealpha=0.9)
+
+        # Only create a legend if there are actually labeled items plotted
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(loc='best', fontsize=9, framealpha=0.9)
         ax.margins(x=0.05, y=0.05)
         ax.figure.tight_layout()
 
-        # Adicionar cursor interativo
-        if lines_data_for_cursor:
-            # Determinar precisão baseada nodes dados
-            precision = self._determine_precision(all_x_data, all_y_data)
-            
-            cursor = InteractiveCursor(
-                ax, 
-                lines_data_for_cursor,
-                x_label=x_label,
-                y_label=y_label,
-                precision=precision
-            )
-            
-            # Armazenar referência ao cursor
-            self.cursors.append((ax, cursor))
+        # Interactive Cursor
+        if cursor_lines:
+            try:
+                # Assuming InteractiveCursor is imported/defined elsewhere
+                precision = self._determine_precision(all_x_points, all_y_points)
+                cursor = InteractiveCursor(
+                    ax,
+                    cursor_lines,
+                    x_label=x_axis_label,
+                    y_label=y_axis_label,
+                    precision=precision
+                )
+                self.cursors.append((ax, cursor))
+            except NameError:
+                pass
 
         ax.figure.canvas.draw()
 
-    def _determine_precision(self, all_x_data, all_y_data):
+    def _get_axis_data(self, axis_key: str) -> Tuple[List[dict], str]:
         """
-        Determina a precisão ideal para exibição baseada na magnitude dos dados.
-        
-        Returns:
-            int: Número de dígitos significativos
+        Helper to extract data series based on current UI selections.
+        Returns: (List of dicts with 'data' and 'label', Axis Title String)
         """
-        if not all_x_data or not all_y_data:
+        sel = self.selections[axis_key]
+        series_list = []
+        axis_title = ""
+
+        # Case 1: Load Factor
+        if sel['result'] == 0:
+            series_list.append({
+                'data': self.lambda_values,
+                'label': "Load Factor (λ)"
+            })
+            axis_title = "Load Factor (λ)"
+
+        # Case 2: Displacements
+        elif sel['result'] == 1 and sel['dof']:
+            dof_idx = self.dof_names.index(str(sel['dof']))
+            unit = self.dof_units[dof_idx]
+
+            # Initialize selected nodes
+            selected_nodes = cast(List[int], sel['nodes'])
+
+            for node_id in selected_nodes:
+                # Calculate column index
+                col_idx = (node_id - 1) * 6 + (dof_idx - 1)
+                if sel['dof'] == '|U|':
+                    # Get translational displacement indices
+                    ux_idx = (node_id - 1) * 6 + 0
+                    uy_idx = (node_id - 1) * 6 + 1
+                    uz_idx = (node_id - 1) * 6 + 2
+
+                    # Translational displacements values
+                    ux = self.displacement_history[:, ux_idx]
+                    uy = self.displacement_history[:, uy_idx]
+                    uz = self.displacement_history[:, uz_idx]
+
+                    # Calculate magnitude of displacement vector
+                    node_data = np.sqrt(ux**2 + uy**2 + uz**2)
+                else:
+                    # Direct DOF access
+                    if col_idx < self.displacement_history.shape[1]:
+                        node_data = self.displacement_history[:, col_idx]
+                    else:
+                        node_data = np.zeros_like(self.lambda_values)
+
+                series_list.append({
+                    'data': node_data,
+                    'label': f"Node {node_id} - {sel['dof']}"
+                })
+
+            axis_title = f"{sel['dof']} [{unit}]"
+
+        return series_list, axis_title
+
+    def _determine_precision(self, x_arrays, y_arrays) -> int:
+        """Determines ideal decimal precision based on data magnitude."""
+        if not x_arrays or not y_arrays:
             return 4
-        
-        # Concatenar todos os dados
-        all_data = []
-        for data in all_x_data + all_y_data:
-            if len(data) > 0:
-                all_data.extend(data)
-        
-        if not all_data:
-            return 4
-        
-        # Encontrar ordem de magnitude
-        max_val = np.max(np.abs(all_data))
-        
+
+        # Concatenate all data arrays
+        all_values = np.concatenate(x_arrays + y_arrays)
+
+        # Calculate the maximum absolute value
+        max_val = np.max(np.abs(all_values))
         if max_val == 0:
             return 4
-        
-        # Ajustar precisão baseada na ordem de magnitude
+
+        # Calculate magnitude using log10
         magnitude = np.floor(np.log10(max_val))
-        
-        if magnitude >= 3:  # Valores grandes (>= 1000)
-            return 3
-        elif magnitude >= 0:  # Valores normais (1-999)
-            return 4
-        elif magnitude >= -3:  # Valores pequenos (0.001-0.999)
-            return 5
-        else:  # Valores muito pequenos
-            return 6
+
+        if magnitude >= 3:
+            return 3    # >= 1000
+        if magnitude >= 0:
+           return 4     # 1 to 999
+        if magnitude >= -3:
+            return 5    # 0.001 to 1
+        return 6        # < 0.001
 
     def _clear_cursor(self, ax):
-        """
-        Remove cursor anterior associado a este axes.
-        """
-        # Procurar e desconectar cursor antigo
-        for i, (stored_ax, cursor) in enumerate(self.cursors):
+        """Removes the interactive cursor from the specific axes."""
+        # Filter self.cursors, disconnecting the one that matches 'ax'
+        remaining_cursors = []
+        for stored_ax, cursor in self.cursors:
             if stored_ax is ax:
-                cursor.disconnect()
-                self.cursors.pop(i)
-                break
-    
-    def closeEvent(self, event):
-        """
-        Sobrescrever closeEvent para limpar cursores ao fechar o diálogo.
-        """
-        # Desconectar todos os cursores
-        for ax, cursor in self.cursors:
-            cursor.disconnect()
-        
-        self.cursors.clear()
-        
-        # Chamar closeEvent pai
-        super().closeEvent(event)
+                try:
+                    cursor.disconnect()
+                except AttributeError:
+                    pass
+            else:
+                remaining_cursors.append((stored_ax, cursor))
+
+        self.cursors = remaining_cursors
 
     def update_table(self):
-        """Atualiza a tabela com os dados do gráfico de forma generalizada."""
-        x_series, _ = self._get_axis_data_and_labels(self.selected_h_dof, self.selected_h_nodes, "H")
-        y_series, _ = self._get_axis_data_and_labels(self.selected_v_dof, self.selected_v_nodes, "V")
+        """Refreshes the data table based on the plotted series."""
+        if not hasattr(self, 'data_table'):
+            return
+
+        # Re-fetch data to ensure table matches plot exactly
+        x_series, _ = self._get_axis_data('h')
+        y_series, _ = self._get_axis_data('v')
 
         if not x_series or not y_series:
             self.data_table.setRowCount(0)
             self.data_table.setColumnCount(0)
             return
 
-        headers = ["Incremento"]
-        all_series = []
+        # Prepare headers and columns
+        headers = ["Step"]
+        columns = [np.arange(len(self.lambda_values))]
+        seen_labels = set()
 
-        # Coletar cabeçalhos e séries, evitando duplicatas (caso Lambda seja selecionado em ambos)
-        temp_legends = set()
         for series in x_series + y_series:
-            if series['legend'] not in temp_legends:
-                headers.append(series['legend'])
-                all_series.append(series['metadata'])
-                temp_legends.add(series['legend'])
-        
+            lbl = series['label']
+            if lbl not in seen_labels:
+                headers.append(lbl)
+                columns.append(series['data'])
+                seen_labels.add(lbl)
+
+        # Update Table Widget
         num_rows = len(self.lambda_values)
         self.data_table.setRowCount(num_rows)
         self.data_table.setColumnCount(len(headers))
         self.data_table.setHorizontalHeaderLabels(headers)
 
-        for row in range(num_rows):
-            self.data_table.setItem(row, 0, QTableWidgetItem(str(row))) # Incremento
-            for col, data_array in enumerate(all_series, start=1):
-                value = data_array[row]
-                item_text = f"{value:.6e}" if isinstance(value, np.floating) else f"{value:.6f}"
-                self.data_table.setItem(row, col, QTableWidgetItem(item_text))
+        # Batch populate
+        for col_idx, col_data in enumerate(columns):
+            for row_idx, value in enumerate(col_data):
+                fmt = f"{value:.6e}" if isinstance(value, (float, np.floating)) else str(value)
+                self.data_table.setItem(row_idx, col_idx, QTableWidgetItem(fmt))
 
         self.data_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-    
-    def on_tab_changed(self, index):
-        """Callback quando a aba é alterada."""
-        if index == 2:  # Aba "Gráfico Completo"
-            self.update_full_plot()
-    
-    def update_full_plot(self):
-        """Atualiza o gráfico completo (cópia do preview)."""
-        self._draw_plot(self.full_plot.axes, is_full_plot=True)
-    
+
     def export_image(self):
-        """Exporta o gráfico atual como imagem ou gráfico."""
+        """Exports the full plot to a file."""
         if not self.full_plot:
             return
 
-        # Atualizar o gráfico para a seleção mais recente
         self.update_full_plot()
 
-        # Abre o diálogo de "Salvar Arquivo"
-        fileName, selected_filter = QFileDialog.getSaveFileName(self,
-            "Salvar Gráfico",
-            "", # Diretório inicial
-            "SVG (*.svg);;PDF (*.pdf);;PNG (*.png);;JPG (*.jpg)"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Chart",
+            "",
+            "Images (*.png *.jpg);;Vector Graphics (*.svg *.pdf)"
         )
 
-        if fileName:
-            # Usa o método savefig da figura do Matplotlib
-            self.full_plot.fig.savefig(fileName, bbox_inches='tight')
+        if file_path:
+            try:
+                self.full_plot.fig.savefig(file_path, bbox_inches='tight', dpi=300)
+            except Exception as e:
+                print(f"Error saving file: {e}")
 
+    def closeEvent(self, event):
+        """Ensure clean shutdown of cursors to prevent memory leaks."""
+        for _, cursor in self.cursors:
+            try:
+                cursor.disconnect()
+            except Exception:
+                pass
+        self.cursors.clear()
+        super().closeEvent(event)
 
 class AnalysisParametersDialog(QDialog):
-    """
-    Uma janela de diálogo para modificar os parâmetros básicos da análise,
-    como tipo de análise e número de subdivisões.
-    """
+    """Dialog for editing structural analysis parameters."""
+
     def __init__(self, current_params, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Editar Parâmetros da Análise")
+        self.setWindowTitle("Edit Analysis Parameters")
         self.setWindowModality(Qt.WindowModality.WindowModal)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(450)
+        self.setMinimumHeight(550)
 
-        # Widgets de edição
-        self.analysis_combo = QComboBox()
-        self.analysis_combo.addItems(['Linear', 'Não Linear', 'Flambagem'])
-        self.analysis_combo.setCurrentText(current_params.get('analysis_type', 'Linear'))
-
-        self.subdiv_spin = QSpinBox()
-        self.subdiv_spin.setRange(1, 512)
-        self.subdiv_spin.setValue(current_params.get('number_of_subdivisions', 1))
-
-        # Botões OK/Cancel
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-
-        # Layout
-        form_layout = QFormLayout()
-        form_layout.addRow("Tipo de Análise:", self.analysis_combo)
-        form_layout.addRow("Nº de Subdivisões por Elemento:", self.subdiv_spin)
+        # Define dictionaries
+        self.current_params = current_params
+        self.config = current_params.get('config', {})
 
         main_layout = QVBoxLayout(self)
-        main_layout.addLayout(form_layout)
-        main_layout.addWidget(button_box)
+        main_layout.setSpacing(20)
 
-        # Estilo
+        self._create_mesh_section(main_layout)
+        self._create_analysis_section(main_layout)
+        self._create_button_box(main_layout)
+
+        # Initialize visibility states
+        self._update_visibility()
+
+        self._apply_stylesheet()
+
+    def _create_mesh_section(self, parent_layout):
+        """Create mesh parameters section."""
+        mesh_group = QGroupBox("Mesh")
+        mesh_layout = QFormLayout()
+
+        self.mesh_param_spin = QDoubleSpinBox()
+        self.mesh_param_spin.setRange(0.01, 512.0)
+        self.mesh_param_spin.setDecimals(2)
+        self.mesh_param_spin.setValue(self.current_params.get('mesh_parameter', 1.0))
+        mesh_layout.addRow("Mesh parameter:", self.mesh_param_spin)
+
+        mesh_group.setLayout(mesh_layout)
+        parent_layout.addWidget(mesh_group)
+
+    def _create_analysis_section(self, parent_layout):
+        """Create analysis parameters section."""
+        analysis_group = QGroupBox("Analysis")
+        analysis_layout = QVBoxLayout()
+
+        # Analysis type selector
+        type_layout = QFormLayout()
+        self.analysis_combo = QComboBox()
+        self.analysis_combo.addItems(['Linear', 'Nonlinear', 'Buckling'])
+        self.analysis_combo.setCurrentText(
+            self.current_params.get('analysis_type', 'Linear').capitalize()
+        )
+        self.analysis_combo.currentTextChanged.connect(self._update_visibility)
+        type_layout.addRow("Type:", self.analysis_combo)
+        analysis_layout.addLayout(type_layout)
+
+        # Create all parameter widgets
+        self._create_nonlinear_params(analysis_layout)
+        self._create_buckling_params(analysis_layout)
+
+        analysis_group.setLayout(analysis_layout)
+        parent_layout.addWidget(analysis_group)
+        parent_layout.addStretch()  # Push everything to top
+
+    def _create_nonlinear_params(self, parent_layout):
+        """Create nonlinear analysis parameters."""
+        self.nonlinear_widget = QWidget()
+        nonlinear_layout = QVBoxLayout(self.nonlinear_widget)
+        nonlinear_layout.setContentsMargins(0, 10, 0, 0)
+        nonlinear_layout.setSpacing(10)
+
+        # Method selector
+        method_layout = QFormLayout()
+        self.method_combo = QComboBox()
+        self.method_combo.addItems(['Newton-Raphson', 'Arc-Length'])
+        self.method_combo.setCurrentText(self.config.get('method', 'Newton-Raphson'))
+        self.method_combo.currentTextChanged.connect(self._update_arc_length_visibility)
+        method_layout.addRow("Method:", self.method_combo)
+        nonlinear_layout.addLayout(method_layout)
+
+        # Common parameters
+        common_layout = QFormLayout()
+
+        self.steps_spin = QSpinBox()
+        self.steps_spin.setRange(1, 1000)
+        self.steps_spin.setValue(self.config.get('initial_steps', 1))
+        common_layout.addRow("Initial steps:", self.steps_spin)
+
+        self.max_iter_spin = QSpinBox()
+        self.max_iter_spin.setRange(1, 1000)
+        self.max_iter_spin.setValue(self.config.get('max_iterations', 50))
+        common_layout.addRow("Max iterations:", self.max_iter_spin)
+
+        nonlinear_layout.addLayout(common_layout)
+
+        # Arc-Length specific parameters
+        self._create_arc_length_params(nonlinear_layout)
+
+        parent_layout.addWidget(self.nonlinear_widget)
+
+    def _create_arc_length_params(self, parent_layout):
+        """Create Arc-Length specific parameters."""
+        self.arc_length_widget = QWidget()
+        arc_layout = QFormLayout()
+        arc_layout.setSpacing(8)
+
+        self.load_factor_spin = QDoubleSpinBox()
+        self.load_factor_spin.setRange(0.001, 1000.0)
+        self.load_factor_spin.setDecimals(3)
+        self.load_factor_spin.setValue(self.config.get('max_load_factor', 1.0))
+        arc_layout.addRow("Max load factor:", self.load_factor_spin)
+
+        self.arc_type_combo = QComboBox()
+        self.arc_type_combo.addItems(['Spherical', 'Cylindrical', 'Custom'])
+        self.arc_type_combo.setCurrentText(
+            self.config.get('arc_type', 'Spherical').capitalize()
+        )
+        self.arc_type_combo.currentTextChanged.connect(self._update_psi_visibility)
+        arc_layout.addRow("Arc type:", self.arc_type_combo)
+
+        self.psi_spin = QDoubleSpinBox()
+        self.psi_spin.setRange(0.0, 1.0)
+        self.psi_spin.setDecimals(3)
+        self.psi_spin.setSingleStep(0.1)
+        self.psi_spin.setValue(self.config.get('phi', 1.0))
+        self.psi_label = QLabel("Psi:")
+        arc_layout.addRow(self.psi_label, self.psi_spin)
+
+        self.arc_length_widget.setLayout(arc_layout)
+        parent_layout.addWidget(self.arc_length_widget)
+
+    def _create_buckling_params(self, parent_layout):
+        """Create buckling analysis parameters."""
+        self.buckling_widget = QWidget()
+        buckling_layout = QFormLayout()
+
+        self.buckling_modes_spin = QSpinBox()
+        self.buckling_modes_spin.setRange(1, 100)
+        self.buckling_modes_spin.setValue(self.config.get('buckling_modes', 5))
+        buckling_layout.addRow("Buckling modes:", self.buckling_modes_spin)
+
+        self.buckling_widget.setLayout(buckling_layout)
+        parent_layout.addWidget(self.buckling_widget)
+
+    def _create_button_box(self, parent_layout):
+        """Create dialog button box."""
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        parent_layout.addWidget(button_box)
+
+    def _update_visibility(self):
+        """Update widget visibility based on analysis type."""
+        analysis_type = self.analysis_combo.currentText()
+
+        is_nonlinear = analysis_type == 'Nonlinear'
+        is_buckling = analysis_type == 'Buckling'
+
+        self.nonlinear_widget.setVisible(is_nonlinear)
+        self.buckling_widget.setVisible(is_buckling)
+
+        if is_nonlinear:
+            self._update_arc_length_visibility()
+
+    def _update_arc_length_visibility(self):
+        """Update Arc-Length specific parameters visibility."""
+        is_arc_length = self.method_combo.currentText() == 'Arc-Length'
+        self.arc_length_widget.setVisible(is_arc_length)
+
+        if is_arc_length:
+            self._update_psi_visibility()
+
+    def _update_psi_visibility(self):
+        """Update Psi parameter visibility based on arc type."""
+        is_custom = self.arc_type_combo.currentText() == 'Custom'
+        self.psi_label.setVisible(is_custom)
+        self.psi_spin.setVisible(is_custom)
+
+    def get_parameters(self):
+        """Extract and return current parameter values."""
+        analysis_type = self.analysis_combo.currentText().lower()
+
+        params = {
+            'analysis_type': analysis_type,
+            'mesh_parameter': self.mesh_param_spin.value(),
+            'config': {}
+        }
+
+        if analysis_type == 'nonlinear':
+            params['config'] = {
+                'method': self.method_combo.currentText(),
+                'initial_steps': self.steps_spin.value(),
+                'max_iterations': self.max_iter_spin.value(),
+            }
+
+            if self.method_combo.currentText() == 'Arc-Length':
+                params['config'].update({
+                    'max_load_factor': self.load_factor_spin.value(),
+                    'arc_type': self.arc_type_combo.currentText().lower(),
+                })
+
+                if self.arc_type_combo.currentText() == 'Custom':
+                    params['config']['phi'] = self.psi_spin.value()
+
+        elif analysis_type == 'buckling':
+            params['config'] = {
+                'buckling_modes': self.buckling_modes_spin.value()
+            }
+
+        return params
+
+    def _apply_stylesheet(self):
+        """Apply dialog stylesheet."""
         self.setStyleSheet("""
             QDialog {
                 background-color: #f8fafc;
                 font-family: 'Segoe UI', sans-serif;
                 font-size: 13px;
-                color: #1e293b; /* Garante texto escuro no fundo claro */
-            }
-
-            QLabel#DialogTitle {
-                font-size: 16px;
-                font-weight: bold;
                 color: #1e293b;
-                margin-bottom: 10px;
             }
-
-            QLabel {
+            QGroupBox {
                 font-weight: 600;
-                color: #475569; /* Cinza médio para labels */
+                font-size: 14px;
+                color: #1e293b;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 16px;
+                background-color: #ffffff;
             }
-
-            QComboBox, QSpinBox {
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 8px;
+                background-color: #ffffff;
+            }
+            QLabel {
+                font-weight: 500;
+                color: #475569;
+            }
+            QComboBox, QSpinBox, QDoubleSpinBox {
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 6px 10px;
                 min-width: 150px;
-                color: #1e293b; /* Texto escuro dentro dos inputs */
+                color: #1e293b;
                 selection-background-color: #3b82f6;
             }
-
-            QComboBox:hover, QSpinBox:hover {
+            QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {
                 border: 1px solid #94a3b8;
             }
-
-            QComboBox:focus, QSpinBox:focus {
-                border: 2px solid #3b82f6; /* Destaque azul ao focar */
-                padding: 5px 9px; /* Ajuste para compensar a borda de 2px */
+            QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+                border: 2px solid #3b82f6;
+                padding: 5px 9px;
             }
-
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
@@ -1403,8 +1101,6 @@ class AnalysisParametersDialog(QDialog):
                 border-top-right-radius: 6px;
                 border-bottom-right-radius: 6px;
             }
-
-            /* Estilo dos Botões */
             QPushButton {
                 font-weight: 600;
                 border-radius: 6px;
@@ -1412,8 +1108,6 @@ class AnalysisParametersDialog(QDialog):
                 font-size: 13px;
                 min-width: 80px;
             }
-
-            /* Botão OK (Primário) */
             QPushButton[text="OK"], QPushButton[text="&OK"] {
                 background-color: #3b82f6;
                 color: white;
@@ -1425,8 +1119,6 @@ class AnalysisParametersDialog(QDialog):
             QPushButton[text="OK"]:pressed, QPushButton[text="&OK"]:pressed {
                 background-color: #1d4ed8;
             }
-
-            /* Botão Cancel (Secundário) */
             QPushButton[text="Cancel"], QPushButton[text="&Cancel"] {
                 background-color: #ffffff;
                 color: #475569;
@@ -1439,9 +1131,40 @@ class AnalysisParametersDialog(QDialog):
             }
         """)
 
+    def on_analysis_type_changed(self, text):
+        self.nonlinear_widget.setVisible(text == 'Nonlinear')
+        self.buckling_widget.setVisible(text == 'Buckling')
+
+    def on_method_changed(self, text):
+        self.arc_length_widget.setVisible(text == 'Arc-Length')
+
+    def on_arc_type_changed(self, text):
+        if text == 'Spherical':
+            self.psi_spin.setValue(1.0)
+            self.psi_spin.setEnabled(False)
+        elif text == 'Cylindrical':
+            self.psi_spin.setValue(0.0)
+            self.psi_spin.setEnabled(False)
+        else:
+            self.psi_spin.setEnabled(True)
+
     def get_parameters(self):
-        """Retorna os valores atuais dos widgets em um dicionário."""
-        return {
-            'analysis_type': self.analysis_combo.currentText(),
-            'number_of_subdivisions': self.subdiv_spin.value()
+        params = {
+            'mesh_parameter': self.mesh_param_spin.value(),
+            'analysis_type': self.analysis_combo.currentText()
         }
+
+        if self.analysis_combo.currentText() == 'Nonlinear':
+            params['method'] = self.method_combo.currentText()
+            params['initial_steps'] = self.steps_spin.value()
+            params['max_iterations'] = self.max_iter_spin.value()
+
+            if self.method_combo.currentText() == 'Arc-Length':
+                params['max_load_factor'] = self.load_factor_spin.value()
+                params['arc_type'] = self.arc_type_combo.currentText()
+                params['phi'] = self.psi_spin.value()
+
+        if self.analysis_combo.currentText() == 'Buckling':
+            params['buckling_modes'] = self.buckling_modes_spin.value()
+
+        return params
