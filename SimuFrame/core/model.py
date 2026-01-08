@@ -526,7 +526,7 @@ class Structure:
     element_type: str
     is_buckling: bool
     num_elements: int
-    subdivisions: int
+    subdivisions: List[int]
     dofs_per_node: int
     condensation_data: list
 
@@ -537,7 +537,7 @@ class Structure:
         coordinates: npt.NDArray[np.float64],
         connectivity: npt.NDArray[np.integer],
         section_data: Dict[Union[int, slice, range], Dict[str, Any]],
-        subdivisions: int,
+        subdivisions: int | float,
         supports: List[Dict[str, Any]],
         releases: Dict[int, List[int]],
         nodal_loads: List[Dict[str, List[float]]],
@@ -563,7 +563,7 @@ class Structure:
         # Store initial data
         self.metadata = metadata
         self.element_type = element_type
-        self.subdivisions = subdivisions
+        self.subdivisions: List[int] = []
         self.coordenadas = np.array(coordinates, dtype=np.float64)
 
         # Check beam properties
@@ -639,7 +639,7 @@ class Structure:
         self.define_releases(releases)
 
         # Gerar a malha final de elements
-        self.generate_mesh(self.subdivisions)
+        self.generate_mesh(subdivisions)
 
         # Store condensation data
         self.condensation_data = []
@@ -759,8 +759,10 @@ class Structure:
         """
         Generates the finite element mesh by subdividing original structural members.
 
-        If subdivisions > 1, splits each original member into multiple finite elements,
+        If mesh_param > 1, splits each original member into multiple finite elements,
         creating intermediate nodes as necessary. Preserves connectivity and properties.
+        However, if mesh_param < 1, firstly the element length is calculated, and then the
+        number of subdivisions is determined based on the mesh_param (L / mesh_param).
 
         Args:
             mesh_param (int | float): Number of finite elements per structural member or element length.
@@ -777,14 +779,17 @@ class Structure:
             start_node, end_node = member['nodes'][0], member['nodes'][-1]
 
             # Get the number of subdivisions based on the type of mesh parameter
-            if isinstance(mesh_param, float):
+            if isinstance(mesh_param, float) and mesh_param < 1.0:
                 # Get the element length
                 L = np.linalg.norm(end_node.coord - start_node.coord)
 
                 # Get the number of subdivisions for this member
                 num_subdivisions = int(np.ceil(L / mesh_param))
-            elif isinstance(mesh_param, int):
-                num_subdivisions = mesh_param
+            else:
+                num_subdivisions = int(mesh_param)
+
+            # Add number of subdivisions to the list
+            self.subdivisions.append(num_subdivisions)
 
             # Get section and releases (hinges)
             section = member.get('section')
@@ -979,7 +984,7 @@ class Structure:
                 if node_id in self.nodes:
                     self.nodal_loads[node_id] = np.array(load, dtype=float)
 
-    def add_distributed_loads(self, loads_data: List[Dict[str, Any]], num_subdivisions: int):
+    def add_distributed_loads(self, loads_data: List[Dict[str, Any]], subdivisions: List[int]):
         """
         Applies distributed loads to elements, handling mesh subdivision.
 
@@ -1013,6 +1018,9 @@ class Structure:
                 # Apply distributed load to the original member
                 if elem_id in self.original_members:
                     self.original_members[elem_id]['distributed_load'] = (q_start, q_end)
+
+                # Get the current member number of subdivisions
+                num_subdivisions = subdivisions[elem_id]
 
                 if num_subdivisions > 1 or self.is_quadratic:
                     # Determine number of points to interpolate
