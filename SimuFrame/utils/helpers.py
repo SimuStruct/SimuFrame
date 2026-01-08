@@ -1,3 +1,6 @@
+# Built-in libraries
+from typing import Tuple, Optional, Dict, List
+
 # Third-party libraries
 import numpy as np
 import numpy.typing as npt
@@ -7,72 +10,78 @@ from scipy.sparse import coo_array, csc_array
 from SimuFrame.core.model import Structure
 
 
-def orientation_vector(estrutura, coords, initial_coords):
+def orientation_vector(
+    structure: Structure,
+    coords: npt.NDArray[np.float64],
+    initial_coords: npt.NDArray[np.float64]
+) -> Dict[str, npt.NDArray[np.float64]]:
     """
-    Função para obter o vetor de orientação da seção transversal (k).
+    Computes the cross-section orientation vector (reference vector).
 
     Args:
-        coords (np.ndarray): Coordenadas dos nós da estrutura.
+        structure (Structure): Instance of the Structure class.
+        coords (np.ndarray): Current coordinates of the structure nodes.
+        initial_coords (np.ndarray): Initial coordinates of the structure nodes.
 
     Returns:
-        dict (np.ndarray): Vetor de referência (indeformada e deformada).
+        Dictionary containing reference vectors for 'undeformed' and 'deformed' states.
     """
-    # Número de elements
-    num_elementos = estrutura.num_elements
-    num_membros_originais = len(initial_coords)
+    num_elements = structure.num_elements
+    num_members = len(initial_coords)
 
-    # Inicializar vetor de referência
-    ref_vector = {
-        'undeformed': np.zeros((num_membros_originais, 3)),
-        'deformed': np.zeros((num_elementos, 3))
+    # Initialize reference vector dictionary
+    ref_vectors = {
+        'undeformed': np.zeros((num_members, 3)),
+        'deformed': np.zeros((num_elements, 3))
     }
 
-    # Dicionário das coordenadas
-    coordenadas = {
+    # Coordinate states to process
+    coordinate_states = {
         'undeformed': np.copy(initial_coords),
         'deformed': np.copy(coords)
     }
 
-    # Loop ao longo da estrutura
-    for tipo in coordenadas:
-        # Coordenadas atuais
-        coord = coordenadas[tipo]
-
-        # Vetor x_ (direção local x)
+    for state, coord in coordinate_states.items():
+        # Local x-axis vector
         x_ = normalize(coord[:, -1] - coord[:, 0])
 
-        # Criar máscara para determinar os elements alinhados ao eixo z
+        # Check for elements aligned with the global Z-axis (x and y components near zero)
         mask = (np.abs(x_[:, 0]) < 1e-9) & (np.abs(x_[:, 1]) < 1e-9)
 
-        # Gerar vetores de referência automaticamente
-        ref_vector[tipo] = np.where(mask[:, None], np.array([1., 0., 0.]), np.array([0., 0., 1.]))
+        # Assign reference vectors: [1, 0, 0] for vertical elements, [0, 0, 1] otherwise
+        ref_vectors[state] = np.where(mask[:, None], np.array([1., 0., 0.]), np.array([0., 0., 1.]))
 
-    return ref_vector
+    return ref_vectors
 
 
-def atribuir_deslocamentos(numDOF, GLL, GLe, T, dr):
+def get_local_displacements(
+    num_dofs: int,
+    free_dofs_mask: npt.NDArray[np.bool_],
+    element_dofs: npt.NDArray[np.integer],
+    transformation_matrix: npt.NDArray[np.float64],
+    displacements: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
     """
-    Função para atribuir os deslocamentos reduzidos (dr)
-    aos graus de liberdade livres de cada elemento.
+    Maps reduced displacements to full local element displacements.
 
-    Parâmetros:
-        numDOF (int): Número total de graus de liberdade.
-        dofs_per_node (int): Graus de liberdade por nó.
-        GLL (np.ndarray): Array booleano indicando os graus de liberdade livres.
-        GLe (np.ndarray): Array com os graus de liberdade dos elements.
-        T (np.ndarray): Matriz de transformação.
-        dr (np.ndarray): Array de deslocamentos reduzidos.
+    Args:
+        num_dofs (int): Total number of degrees of freedom.
+        free_dofs_mask (bool): Boolean mask indicating free DOFs.
+        element_dofs (np.ndarray): Array of element DOF indices.
+        transformation_matrix (np.ndarray): Global transformation matrix.
+        displacements (np.ndarray): Array of reduced displacements.
 
-    Retorna:
-        np.ndarray: Array de deslocamentos locais do elemento.
+    Returns:
+        Array of local element displacements.
     """
-    # Inicializar o array de deslocamentos
-    d = np.zeros((numDOF, 1))
+    # Initialize full displacement array
+    d = np.zeros((num_dofs, 1))
 
-    # Atribuir os deslocamentos aos graus de liberdade livres
-    d[GLL] = dr
+    # Assign reduced displacements to free DOFs
+    d[free_dofs_mask] = displacements
 
-    return T @ d[GLe]
+    # Transform global displacements to local system
+    return transformation_matrix @ d[element_dofs]
 
 
 def assemble_sparse_matrix(
@@ -86,52 +95,50 @@ def assemble_sparse_matrix(
 
     Args:
         structure (Structure): Instance of the Structure class.
-        global_element_stiffness (npt.NDArray[np.float64]): Assembled global stiffness matrix.
+        global_element_stiffness (np.ndarray): Assembled global stiffness matrix.
         total_dofs (int): Total number of degrees of freedom in the system.
-        element_dofs (npt.NDArray[np.integer]): Array mapping element local DOFs to global indices.
+        element_dofs (np.ndarray): Array mapping element local DOFs to global indices.
 
     Returns:
         K (csc_array): Global stiffness matrix in CSC format.
     """
-    # Tamanho da matriz de rigidez global
-    tamanho_ke = structure.dofs_per_element
-    num_elementos = structure.num_elements
+    dofs_per_el = structure.dofs_per_element
+    num_elements = structure.num_elements
 
-    # Obter todos os valores de 'metadata'
+    # Flatten stiffness data
     data = global_element_stiffness.flatten()
 
-    # Gerar os índices de 'rows'
-    rows_temp = np.broadcast_to(element_dofs[:, :, None], (num_elementos, tamanho_ke, tamanho_ke))
-    rows = rows_temp.flatten()
+    # Generate row indices
+    rows = np.broadcast_to(
+        element_dofs[:, :, None],
+        (num_elements, dofs_per_el, dofs_per_el)
+    ).flatten()
 
-    # Gerar os índices de 'cols' 
-    cols_temp = np.broadcast_to(element_dofs[:, None, :], (num_elementos, tamanho_ke, tamanho_ke))
-    cols = cols_temp.flatten()
+    # Generate column indices
+    cols = np.broadcast_to(
+        element_dofs[:, None, :],
+        (num_elements, dofs_per_el, dofs_per_el)
+    ).flatten()
 
-    # Converter listas para array no formato COO -> CSC
-    KG = coo_array((data, (rows, cols)), shape=(total_dofs, total_dofs)).tocsc()
+    # Create sparse matrix
+    kg = coo_array((data, (rows, cols)), shape=(total_dofs, total_dofs)).tocsc()
 
-    return KG
+    return kg
 
 
-def extract_element_data(structure):
+def extract_element_data(structure: Structure) -> Tuple[npt.NDArray, npt.NDArray, npt.NDArray, Dict]:
     """
-    Calcula e retorna dados geométricos e constitutivos para elements estruturais.
+    Extracts geometric and constitutive properties from structural elements.
 
     Args:
-        estrutura (Classe): instância da classe Structure.
+        structure (Structure): Instance of the Structure class.
 
     Returns:
-        tuple: Uma tupla contendo:
-            - coord_ord (np.ndarray): Coordenadas ordenadas dos elements.
-            - L (np.ndarray): Comprimentos dos elements.
-            - A (np.ndarray): Área da seção transversal dos elements.
-            - Ix (np.ndarray): Momento de inércia em relação ao eixo x.
-            - Iy (np.ndarray): Momento de inércia em relação ao eixo y.
-            - Iz (np.ndarray): Momento de inércia em relação ao eixo z.
-            - E (np.ndarray): Módulo de elasticidade.
-            - nu (np.ndarray): Coeficiente de Poisson.
-            - G (np.ndarray): Módulo de cisalhamento.
+        Tuple containing:
+            - Element coordinates
+            - Member coordinates
+            - Connectivity matrix
+            - Dictionary of properties (L, A, E, etc.)
     """
     # Retrieve raw object lists
     elements = list(structure.elements.values())
@@ -141,13 +148,13 @@ def extract_element_data(structure):
     conec = np.array([[node.id for node in e.conec] for e in elements], dtype=int)
 
     # Extract element coords
-    coords = np.array([[node.coord for node in e.conec] for e in elements], dtype=float)
+    elem_coords = np.array([[node.coord for node in e.conec] for e in elements], dtype=float)
 
     # Calculate lengths
-    L = np.array([e.get_element_length() for e in elements], dtype=float)
+    lengths = np.array([e.get_element_length() for e in elements], dtype=float)
 
     # Extract original members coords (initial and final only)
-    coords_members = np.array([[m['nodes'][0].coord, m['nodes'][-1].coord] for m in members], dtype=float)
+    member_coords = np.array([[m['nodes'][0].coord, m['nodes'][-1].coord] for m in members], dtype=float)
 
     # Extract sections and materials
     sections = [e.section for e in elements]
@@ -168,7 +175,7 @@ def extract_element_data(structure):
 
     # Pack data into the dictionary
     properties = {
-        "L": L,
+        "L": lengths,
         "A": A,
         "k": k,
         "It": It,
@@ -180,107 +187,112 @@ def extract_element_data(structure):
         "G": G
     }
 
-    return coords, coords_members, conec, properties
+    return elem_coords, member_coords, conec, properties
 
 
 def static_condensation(
-        estrutura,
-        k,
-        f: npt.NDArray[np.float64] | None = None,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        structure: Structure,
+        k_local: npt.NDArray[np.float64],
+        f_local: npt.NDArray[np.float64] | None = None
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
-    Condensação estática vetorizada para múltiplas matrizes de rigidez.
+    Performs static condensation for released degrees of freedom (hinges).
 
     Args:
-        estrutura (Estrutura): Instância da classe Estrutura.
-        k (np.array): Matrizes de rigidez globais dos elements.
-        f (np.array): Vetor de forças distribuídas.
+        structure (Structure): Instance of the Structure class.
+        k_local (np.array): Local element stiffness matrices.
+        f_local (np.array): Local element equivalent force vectors.
 
-    Retorna:
-        K_cond (np.array): Matrizes de rigidez condensadas.
+    Returns:
+        tuple:
+            - k_cond (np.array): Condensed element stiffness matrices.
+            - f_cond (np.array): Condensed element equivalent force vectors.
     """
-    # Criar uma lista apenas com elements a serem condensados
-    elementos_para_condensar = [
-        (i, list(elem.hinges[0] + [estrutura.dofs_per_node + dof for dof in elem.hinges[1]]))
-        for i, elem in estrutura.elements.items()
-        if elem.hinges != [[], []]
-    ]
+    if not structure.condensation_data:
+        # If no condensation needed, initialize f_local if missing and return
+        if f_local is None:
+            f_local = np.zeros((structure.num_elements, structure.dofs_per_element, 1))
+        return k_local, f_local
 
-    # Pré-calcular os índices
-    todos_dofs = np.arange(12)
-    indices = {
-        r: {
-            'mantidos': np.setdiff1d(todos_dofs, elim),
-            'eliminados': np.array(elim)
-        }
-        for r, elim in elementos_para_condensar
-    }
+    # Initialize force vector if None
+    if f_local is None:
+        f_local = np.zeros((structure.num_elements, structure.dofs_per_element, 1))
 
-    # Definir o vetor de forças equivalentes
-    if f is None:
-        f = np.zeros((estrutura.num_elements, 12, 1))
+    # Create a copy of original arrays
+    k_condensed = k_local.copy()
+    f_condensed = f_local.copy()
 
-    # Itera sobre cada elemento da malha
-    for idx, releases in indices.items():
-        # Pega os índices pré-calculados do cache
-        gl_mantidos, gl_eliminados = releases['mantidos'], releases['eliminados']
+    # Iterate over condened elements
+    for element in structure.condensation_data:
+        elem_idx = element['id']
+        elim = element['elim_indices']
+        kept = element['kept_indices']
 
-        # Dados do elemento atual            
-        ke, fe = k[idx], f[idx]
+        # Extract local matrices and forces arrays
+        ke = k_condensed[elem_idx]
+        fe = f_condensed[elem_idx]
 
-        # Partição das matrizes de rigidez
-        k_mm = ke[np.ix_(gl_mantidos, gl_mantidos)]
-        k_me = ke[np.ix_(gl_mantidos, gl_eliminados)]
-        k_em = ke[np.ix_(gl_eliminados, gl_mantidos)]
-        k_ee = ke[np.ix_(gl_eliminados, gl_eliminados)]
+        # Partition matrices
+        # mm: retained-retained, ee: eliminated-eliminated, me/em: coupling
+        k_mm = ke[np.ix_(kept, kept)]
+        k_me = ke[np.ix_(kept, elim)]
+        k_em = ke[np.ix_(elim, kept)]
+        k_ee = ke[np.ix_(elim, elim)]
 
-        # Verificar se k_ee é singular
+        # Fallback for singular matrices
         try:
             k_ee_inv = np.linalg.inv(k_ee)
         except np.linalg.LinAlgError:
-            k_ee_inv = np.linalg.inv(k_ee + np.eye(k_ee.shape[0]) * 1e-9)
+            k_ee_inv = np.linalg.pinv(k_ee)
 
-        # Condensação
-        k_cond = k_mm - k_me @ k_ee_inv @ k_em
-        f_cond = fe[gl_mantidos] - k_me @ k_ee_inv @ fe[gl_eliminados]
+        # Store k_me @ k_ee_inv
+        k_matrix = k_me @ k_ee_inv
 
-        # Atualiza apenas os DOFs mantidos
+        # Calculate condensed arrays
+        k_cond = k_mm - k_matrix @ k_em
+
+        # Condense forces only in linear analysis
+        f_m = fe[kept]
+        f_e = fe[elim]
+        f_cond = f_m - k_matrix @ f_e
+
+        # Clear original arrays
         ke.fill(0.0)
         fe.fill(0.0)
-        ke[np.ix_(gl_mantidos, gl_mantidos)] = k_cond
-        fe[gl_mantidos] = f_cond
 
-        # Evitar singularidade nodes graus de liberdade condensados
-        ke[gl_eliminados, gl_eliminados] += 1e-6
+        # Update local matrices
+        ke[np.ix_(kept, kept)] = k_cond
+        fe[kept] = f_cond
 
-    return k, f
+        # Add a small value to the diagonal to avoid singular matrices
+        max_diag = np.max(np.abs(np.diag(k_cond)))
+        ke[(elim, elim)] = 1e-6 * max_diag
+
+    return k_condensed, f_condensed
 
 def transformation_matrix(
-        estrutura, 
-        coords
+        structure: Structure,
+        coords: npt.NDArray[np.float64]
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
-    Calcula as matrizes de transformação locais e globais para múltiplos elements,
-    além de obter a deformação relativa de cada eixo local x.
+    Calculates local and global transformation matrices for multiple elements.
 
     Args:
-        estrutura (Estrutura): Objeto da classe Structure.
-        coords (array_like): Coordenadas dos nós dos elements.
+        structure (Structure): Instance of the Structure class.
+        coords (np.ndarray): Coordinates of the nodes of the elements.
 
     Returns:
-        T (array_like): Matriz de transformação global.
-        MT (array_like): Matriz de transformação do elemento.
+        Tuple containing:
+            - T (np.ndarray): Global transformation matrix.
+            - MT (np.ndarray): Element transformation matrix.
     """
-    # Dados iniciais
-    num_elementos = estrutura.num_elements
-
-    # Vetor x_ (direção local x: do nó inicial para o final)
+    # Local x-axis normalized
     x_ = normalize(coords[:, -1] - coords[:, 0])
 
-    # Auxiliar vector (global y)
+    # Auxiliary vector (Global Y)
     aux = np.array([0., 1., 0.])
 
-    # Create a mask for elements parallel to the global y axis
+    # Identify elements parallel to global Y
     mask = (np.abs(x_[:, 0]) < 1e-9) & (np.abs(x_[:, 2]) < 1e-9)
 
     # For non parallel elements, determine z_aux
@@ -289,145 +301,66 @@ def transformation_matrix(
     # For parallel elements, aux = [0, 0, 1]
     aux_alt = np.array([0., 0., 1.])
 
-    # Determine z_ based on mask
+    # Determine local z-axis
     z_ = np.where(mask[:, None], aux_alt, z_aux)
 
-    # z_ vector (complete the right triangle z_ = x_ x y_)
+    # Determine local y-axis (complete the triad)
     y_ = normalize(np.cross(z_, x_))
 
-    # Empilhar matrizes de rotação [x_, y_, z_]
-    MT = np.stack([x_, y_, z_], axis=1)
+    # Stack rotation matrices [x, y, z]
+    el_rot_matrix = np.stack([x_, y_, z_], axis=1, dtype=np.float64)
 
-    # Expandir para matriz 12x12 via kron
-    num_diag = estrutura.nodes_per_element
-    T = np.kron(np.eye(2 * num_diag), MT)
-    # T = np.zeros((num_elementos, 12, 12)) # np.kron(np.eye(4), MT[:, None, :, :])
-    # T[:, 0:3, 0:3] = MT
-    # T[:, 3:6, 3:6] = MT
-    # T[:, 6:9, 6:9] = MT
-    # T[:, 9:12, 9:12] = MT
+    # Expand to full element DOF size using Kronecker product
+    num_diag = structure.nodes_per_element
+    global_rot_matrix = np.kron(np.eye(2 * num_diag), el_rot_matrix)
 
-    # Validar ortogonalidade
-    assert np.allclose(np.einsum("eij,ejk->eik", MT, MT.transpose(0, 2, 1)),
-                       np.eye(3), atol=1e-8), "MT não é ortogonal"
-    assert np.allclose(np.linalg.det(MT), 1, atol=1e-8), "Determinante de MT não é 1"
+    # Check orthogonality: R * R.T = I
+    assert np.allclose(np.einsum("eij,ejk->eik", el_rot_matrix, el_rot_matrix.transpose(0, 2, 1)),
+                       np.eye(3), atol=1e-8), "Transformation matrix is not orthogonal"
+    assert np.allclose(np.linalg.det(el_rot_matrix), 1, atol=1e-8), "Determinant of transformation matrix is not 1"
 
-    return T, MT
+    return global_rot_matrix, el_rot_matrix
 
-def transformation_matrix_ul(estrutura, d, numDOF, GLL, GLe):
+def normalize(v: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """
-    Calcula as matrizes de transformação locais e globais para múltiplos elements,
-    além de obter a deformação relativa de cada eixo local x.
+    Normalizes an array of vectors along the last axis.
 
     Args:
-        estrutura (Estrutura): Objeto da classe Structure.
-        coords (array_like): Coordenadas dos nós dos elements.
+        v (np.ndarray): Input vector(s).
 
     Returns:
-        T (array_like): Matriz de transformação global.
-        MT (array_like): Matriz de transformação do elemento.
-    """
-    # Dados iniciais
-    num_elementos = estrutura.num_elements
-    coords = estrutura.coordinates
-
-    # Vetor x_ (direção local x: do nó inicial para o final)
-    x1g = coords[:, 0]
-    x2g = coords[:, 1]
-
-    dg = np.zeros((numDOF, 1))
-    dg[GLL] = d
-    de = dg[GLe]
-    x1d = de[:, 0:3, 0]
-    x2d = de[:, 6:9, 0]
-
-    x1 = x1g + x1d
-    x2 = x2g + x2d
-
-    L_atual = np.linalg.norm(x2 - x1, axis=1)
-
-    x_ = normalize(x2 - x1)
-
-    # Auxiliar vector (global y)
-    aux = np.array([0., 1., 0.])
-
-    # Create a mask for elements parallel to the global y axis
-    mask = (np.abs(x_[:, 0]) < 1e-9) & (np.abs(x_[:, 2]) < 1e-9)
-
-    # For non parallel elements, determine z_aux
-    z_aux = normalize(np.cross(x_, aux))
-
-    # For parallel elements, aux = [0, 0, 1]
-    aux_alt = np.array([0., 0., 1.])
-
-    # Determine z_ based on mask
-    z_ = np.where(mask[:, None], aux_alt, z_aux)
-
-    # z_ vector (complete the right triangle z_ = x_ x y_)
-    y_ = normalize(np.cross(z_, x_))
-
-    # # VERIFICAÇÃO ADICIONAL: Para elements verticais, garantir que z_ está no plano horizontal
-    # # Se x_ = [0, 0, ±1] e y_ = [0, 1, 0], então z_ deve ser [±1, 0, 0]
-    # if np.any(mask):
-    #     y_parallel = np.where(mask[:, None], 
-    #                           normalize(np.cross(aux_alt, x_)),
-    #                           y_)
-    #     y_ = y_parallel
-
-    # Empilhar matrizes de rotação [x_, y_, z_]
-    MT = np.stack([x_, y_, z_], axis=1)
-
-    # Expandir para matriz 12x12 via kron
-    T = np.zeros((num_elementos, 12, 12)) # np.kron(np.eye(4), MT[:, None, :, :])
-    T[:, 0:3, 0:3] = MT
-    T[:, 3:6, 3:6] = MT
-    T[:, 6:9, 6:9] = MT
-    T[:, 9:12, 9:12] = MT
-
-    # Validar ortogonalidade
-    assert np.allclose(np.einsum("eij,ejk->eik", MT, MT.transpose(0, 2, 1)),
-                       np.eye(3), atol=1e-8), "MT não é ortogonal"
-    assert np.allclose(np.linalg.det(MT), 1, atol=1e-8), "Determinante de MT não é 1"
-
-    return T, L_atual
-
-def normalize(v):
-    """
-    Normaliza um array de vetores ao longo de um eixo.
-
-    Args:
-        v (array_like): Vetor a ser normalizado.
-
-    Returns:
-        array_like: Vetor normalizado.
+        Normalized vector(s).
     """
     norm = np.linalg.norm(v, axis=1, keepdims=True)
 
-    # Evita divisão por zero
+    # Avoid division by zero
     nonzero_norm = np.where(norm == 0, 1, norm)
     return v / nonzero_norm
 
-def check_convergence(d, Δd, λF, R,
-                      tolerancias={'force': 1e-6, 'displ': 1e-6, 'energy': 1e-8},
-                      ) -> bool:
+def check_convergence(
+    d: npt.NDArray[np.float64],
+    Δd: npt.NDArray[np.float64],
+    λF: npt.NDArray[np.float64],
+    R: npt.NDArray[np.float64],
+    arc_length_criteria: bool = False,
+    tols={'force': 1e-8, 'displ': 1e-8, 'energy': 1e-10},
+) -> Tuple[bool, float, float, float]:
     """
-    Verifica se o incremento de deslocamento converge com base nodes critérios de força e deslocamento.
+    Checks convergence based on force, displacement, and energy criteria.
 
     Args:
-    d (numpy array): Vetor de deslocamentos atuais.
-    Δd (numpy array): Vetor de incrementos de deslocamento.
-    F (numpy array): Vetor de forças atuais.
-    R (numpy array): Vetor de forças residuais.
-    tol_forca (float, optional): Tolerância para o critério de força.
-    tol_deslocamento (float, optional): Tolerância para o critério de deslocamento.
-    epsilon (float, optional): Valor epsilon para evitar divisão por zero.
+        d (np.ndarray): Current displacement vector.
+        Δd (np.ndarray): Incremental displacement vector.
+        F (np.ndarray): Current force vector.
+        R (np.ndarray): Residual force vector.
+        arc_length_criterion (bool): Arc-length criteria, if provided (for arc-length method only).
+        tols (dict, optional): Tolerances for the force, displacement, and energy criteria.
 
     Returns:
-    tuple: Um tuple contendo (convergencia, erro). 'convergencia' é um booleano que indica se o incremento
-           convergiu. 'erro' é o erro máximo entre os critérios de força e deslocamento.
+        Tuple (converged, rel_force_error, rel_displ_error, rel_energy_error).
     """
-    # Convergence status
-    converged = False
+    if tols is None:
+        tols = {'force': 1e-8, 'displ': 1e-8, 'energy': 1e-10}
 
     # Evaluate norms
     norm_R = np.linalg.norm(R)
@@ -447,47 +380,45 @@ def check_convergence(d, Δd, λF, R,
     rel_energy = energy / max(energy_ref, 1e-12)
 
     # Verify if any of the criteria is met
-    conv_force = rel_force < tolerancias.get('force', 1e-6)
-    conv_displ = rel_displ < tolerancias.get('displ', 1e-6)
-    conv_energy = rel_energy < tolerancias.get('energy', 1e-6)
-
-    # print(f"Forces: {rel_force:.6e} | Displacements: {rel_displ:.6e} | Energy: {rel_energy:.6e}")
+    conv_force = rel_force < tols.get('force', 1e-6)
+    conv_displ = rel_displ < tols.get('displ', 1e-6)
+    conv_energy = rel_energy < tols.get('energy', 1e-8)
 
     # Verify if at least two criteria are met
-    checks = [conv_force, conv_displ, conv_energy]
-    n_satisfied = sum(checks)
+    checks = [conv_force, conv_displ, conv_energy, arc_length_criteria]
+    converged = (sum(checks) >= 2)
 
-    # If at least two criteria are met, return True
-    if n_satisfied >= 2:
-        converged = True
+    return bool(converged), float(rel_force), float(rel_displ), float(rel_energy)
 
-    return converged
-
-def get_deformed_coords(estrutura, coords, deslocamentos, GLe):
+def get_deformed_coords(
+    structure: Structure,
+    coords: npt.NDArray[np.float64],
+    displacements: Dict[str, npt.NDArray[np.float64]],
+    element_dofs: npt.NDArray[np.integer]):
     """
     Returns deformed coordinates for linear, non-linear, and buckling analyses.
     Handles both Euler-Bernoulli (2 nodes) and Timoshenko (3 nodes) elements.
 
     Args:
-        estrutura (Structure): Structure object.
+        structure (Structure): Structure object.
         coords (np.ndarray): Original element coordinates. Shape (num_elements, num_nodes, 3).
-        deslocamentos (dict): Dictionary containing displacement vectors.
-        GLe (np.ndarray): Element degree of freedom indices.
+        displacements (dict): Dictionary containing displacement vectors.
+        element_dofs (np.ndarray): Element degree of freedom indices.
 
     Returns:
-        np.ndarray: Deformed coordinates.
+        np.ndarray: Deformed coordinates arrays.
     """
     # Initial data
-    num_elements = estrutura.num_elements
     num_nodes = coords.shape[1]
+    num_elements = structure.num_elements
 
     # Extract global displacements mapped to elements
-    if estrutura.is_buckling:
-        num_modes = deslocamentos['d'].shape[0]
-        de_global = deslocamentos['d'][:, GLe].squeeze(-1)
+    if structure.is_buckling:
+        num_modes = displacements['d'].shape[0]
+        de_global = displacements['d'][:, element_dofs].squeeze(-1)
     else:
         num_modes = 0
-        de_global = deslocamentos['d'][GLe].squeeze(-1)
+        de_global = displacements['d'][element_dofs].squeeze(-1)
 
     def get_deformed_nodes(d, coords, scale_factor=None):
         """
@@ -500,15 +431,15 @@ def get_deformed_coords(estrutura, coords, deslocamentos, GLe):
             u_start = d[:, 0:3]
             u_mid   = d[:, 6:9]
             u_end   = d[:, 12:15]
-            
+
             # Stack to shape (num_elements, 3, 3)
             dg = np.stack([u_start, u_mid, u_end], axis=1)
-            
+
         else:
             # Euler-Bernoulli (2 nodes): DOFs 0-2 (Start), 6-8 (End)
             u_start = d[:, 0:3]
             u_end   = d[:, 6:9]
-            
+
             # Stack to shape (num_elements, 2, 3)
             dg = np.stack([u_start, u_end], axis=1)
 
@@ -518,25 +449,23 @@ def get_deformed_coords(estrutura, coords, deslocamentos, GLe):
             d_max = np.max(np.abs(dg))
 
             if d_max > 1e-10:
-                # Normalize so max displacement is visible (e.g., 10% of structure or unit)
-                # You might want to adjust this logic to be relative to structure size L
-                scale_factor = 1.0 / d_max 
+                # Normalize max displacement to unit length
+                scale_factor = 1.0 / d_max
             else:
                 scale_factor = 1.0
-        
-        # Apply displacements with scaling        
+
+        # Apply displacements with scaling
         cdef = coords + dg
 
         return cdef
 
     # Compute deformed coordinates
-    if not estrutura.is_buckling:
+    if not structure.is_buckling:
         coordinates = get_deformed_nodes(de_global, coords)
 
     else:
         # Initialize buckling coordinates array
-        # Shape: (num_modes, num_elements, num_nodes, 3)
-        coordinates = np.zeros((num_modes, num_elements, 2, 3))
+        coordinates = np.zeros((num_modes, num_elements, num_nodes, 3))
 
         # Calculate for each mode
         for idx in range(num_modes):
@@ -545,40 +474,35 @@ def get_deformed_coords(estrutura, coords, deslocamentos, GLe):
     return coordinates
 
 
-def deslocamentos_globais(estrutura, d, GLe):
+def get_global_displacements(
+    structure: Structure,
+    displacements: npt.NDArray[np.float64],
+    element_dofs: npt.NDArray[np.integer]):
     """
-    Calcula os deslocamentos para todos os elementos.
-    
-    Args:
-        analise (str): Tipo de análise ('linear', 'nao-linear', 'flambagem').
-        deslocamentos_nodais (dict): Dicionário com os deslocamentos nodais.
-        MT (np.ndarray): Matriz de transformação.
-        modo (int): Modo de flambagem (apenas para analise='flambagem').
-    
-    Returns:
-        deslocamentos_globais (np.ndarray): Matriz de deslocamentos globais.
-    """
-    # Número de elements
-    dofs = estrutura.dofs_per_node
-    nodes = estrutura.nodes_per_element
-    num_elementos = estrutura.num_elements
+    Reshapes global displacement vector into element-wise format.
 
-    if not estrutura.is_buckling:
-        # Deslocamentos globais por elements
-        dg = d[GLe]
-        
-        # Deslocamentos globais reordenados
-        global_displacement = dg.reshape(num_elementos, nodes, dofs)
+    Args:
+        structure (Structure): Instance of the Structure class.
+        displacements (np.ndarray): Global displacement vector.
+        element_dofs (np.ndarray): Element degree of freedom indices.
+
+    Returns:
+        Array of global displacements organized by element.
+    """
+    # Initial data
+    dofs = structure.dofs_per_node
+    nodes_per_el = structure.nodes_per_element
+    num_elements = structure.num_elements
+
+    if not structure.is_buckling:
+        # Extract and reshape for standard analysis
+        elem_displ = displacements[element_dofs]
+        global_displacement = elem_displ.reshape(num_elements, nodes_per_el, dofs)
 
     else:
-        # Número de modos de flambagem
-        num_modos = d.shape[0]
-        
-        # Deslocamentos globais por elements
-        dg = d[:, GLe]
-        
-        # Deslocamentos globais reordenados
-        global_displacement = dg.reshape(num_modos, num_elementos, nodes, dofs)
+        # Extract and reshape for buckling (multiple modes)
+        num_modes = displacements.shape[0]
+        elem_displ = displacements[:, element_dofs]
+        global_displacement = elem_displ.reshape(num_modes, num_elements, nodes_per_el, dofs)
 
     return global_displacement
-
