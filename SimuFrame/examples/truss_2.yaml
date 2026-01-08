@@ -6,16 +6,23 @@ info:
 
 # Analysis general parameters
 analysis:
-  analysis_type: buckling       # Options: linear, nonlinear, buckling
-  element_type: beam          # Options: beam, truss
-  mesh_parameter: 32  # Number of subdivisions for numerical integration
+  analysis_type: buckling
+  element_type: B33
+  mesh_parameter: 32
+  config:
+    initial_steps: 12
+    max_iterations: 100
+    method: Newton-Raphson
+    arc_type: Cylindrical
+    psi: 1.0
+    max_load_factor: 1.0
 
 # Material properties
 materials:
-  # General concrete properties (Units: kN, m)
+  # General properties (Units: kN, m)
   CONCRETE:
-    E: 2.3e7                     # Young's modulus (kPa)
-    nu: 0.2                    # Poisson's ratio
+    E: 2.3e7
+    nu: 0.2
 
 # Section properties
 sections:
@@ -37,8 +44,8 @@ nodes:
 
 # List of elements (before assembly) and their corresponding connectivity
 elements:
-  - connec: [0, 1]            # Start node ID, End node ID
-    section_id: CIRC_BEAM     # Reference section ID
+  - connec: [0, 1]
+    section_id: CIRC_BEAM
     releases: [[4], [4]]
   - connec: [1, 2]
     section_id: CIRC_BEAM
@@ -74,7 +81,6 @@ elements:
 # Boundary conditions
 # [0, 1, 2, 3, 4, 5] -> [ux, uy, uz, rx, ry, rz]
 supports:
-  # List of Node IDs - DOFs restrained
   - node_id: [0, 3]
     boundary_conditions: [0, 1, 2]
   - node_id: [1, 2, 4, 5, 6]

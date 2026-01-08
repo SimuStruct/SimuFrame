@@ -9,6 +9,13 @@ analysis:
   analysis_type: nonlinear
   element_type: B33
   mesh_parameter: 128
+  config:
+    initial_steps: 12
+    max_iterations: 100
+    method: Newton-Raphson
+    arc_type: Cylindrical
+    psi: 1.0
+    max_load_factor: 1.0
 
 # Material properties
 materials:

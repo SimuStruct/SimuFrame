@@ -1,7 +1,7 @@
 # Header with a title and a subtitle
 info:
   project_name: Lee's Frame
-  description: Test NL7 from NAFEMS Publication NNB, Rev. 1, “NAFEMS Non-Linear 
+  description: Test NL7 from NAFEMS Publication NNB, Rev. 1, “NAFEMS Non-Linear
     Benchmarks,” October 1989.
   project_version: 1.0
 
@@ -16,7 +16,7 @@ analysis:
     method: Arc-Length
     max_load_factor: 1.7
     arc_type: Spherical
-    phi: 1.0
+    psi: 1.0
 
 # Material properties
 materials:
