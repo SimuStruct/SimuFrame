@@ -1,13 +1,12 @@
 [project]
 name = "simustruct"
-version = "0.1.0"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "jupyter>=1.1.1",
     "matplotlib>=3.10.8",
-    "numpy>=2.3.5",
     "pyqtgraph>=0.14.0",
     "pyside6>=6.10.1",
     "pyvista>=0.46.4",
@@ -16,6 +15,9 @@ dependencies = [
     "ruamel-yaml>=0.18.17",
     "scikit-learn>=1.8.0",
     "scipy>=1.16.3",
+    "scipy-stubs~=1.16.3",
     "sympy>=1.14.0",
     "tqdm>=4.67.1",
 ]
+[tool.uv]
+reinstall-package = []
