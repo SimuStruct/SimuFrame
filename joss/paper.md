@@ -137,7 +137,7 @@ geometric nonlinear formulation. The load-deflection equilibrium path obtained w
 excellent agreement with the reference analytical solution [@Figueiras:1983], confirming the accuracy 
 of the model implementation for moderate displacements.
 
-![Comparison of load-deflection curves for the simply supported beam benchmark.](./beam_benchmark.png){ width=60% }
+![Comparison of load-deflection curves for the simply supported beam benchmark.](./images/beam_benchmark.png){ width=60% }
 
 ## Space Frame Analysis
 
@@ -150,15 +150,15 @@ correlation was slightly lower ($R^2 \approx 0.91$). This deviation arises becau
 Lagrangian formulation assumes moderate rotations. In this example, rotations exceeded 0.7 radians, pushing
 the limits of this theoretical assumption; nevertheless, the results remain valid for practical design purposes.
 
-![L-shaped frame model in SimuFrame.](./L_shaped_frame.png){ width=50% }
+![L-shaped frame model in SimuFrame.](./images/L_shaped_frame.png){ width=50% }
 
-![Comparison of equilibrium paths for the L-shaped frame at the joint node.](./L_shaped_equilibrium_path.png)
+![Comparison of equilibrium paths for the L-shaped frame at the joint node.](./images/L_shaped_equilibrium_path.png)
 
 2.  **Four-Story Building:** A complex multi-story frame designed to assess the buckling analysis module. The
 first five critical load factors (eigenvalues) were computed and compared with commercial solvers. `SimuFrame`
 matched the RFEM results exactly and remained within a 1.5% deviation from Abaqus solutions.
 
-![Four-story building model in SimuFrame.](./four_story_building.png){ width=50% }
+![Four-story building model in SimuFrame.](./images/four_story_building.png){ width=50% }
 
 | Buckling Mode | SimuFrame ($\lambda$) | Abaqus ($\lambda$) | RFEM ($\lambda$) | Error vs Abaqus (%) | Error vs RFEM (%) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -168,7 +168,7 @@ matched the RFEM results exactly and remained within a 1.5% deviation from Abaqu
 | 4 | 12.650 | 12.844 | 12.651 | 1.51 | 0.01 |
 | 5 | 12.949 | 12.921 | 12.949 | 0.22 | 0.00 |
 
-![First buckling mode of the four-story building.](./1st_buckling_mode.png){ width=50% }
+![First buckling mode of the four-story building.](./images/1st_buckling_mode.png){ width=50% }
 
 The complete scripts for these examples, including mesh generation and post-processing steps, are available in
 the `examples/` directory of the repository.
